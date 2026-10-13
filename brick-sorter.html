@@ -1,0 +1,2456 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Brick Sorter</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Atkinson+Hyperlegible:wght@400;700&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+/* Layout: a single working column (max 980px) with a sticky header and three tabs:
+   Scan -> Inventory -> Set check. Parts are rows; the photo canvas is the one big surface. */
+:root {
+  --bg: #eef1f5;
+  --surface: #ffffff;
+  --sunken: #e4e9f0;
+  --ink: #17202c;
+  --muted: #586476;
+  --line: #d3dae4;
+  --accent: #1d5bbf;
+  --accent-ink: #ffffff;
+  --mark: #f2b705;
+  --good: #23855a;
+  --warn: #a8670f;
+  --warn-bg: #fdf1dc;
+  --bad: #be3a2c;
+  --bad-bg: #fbe7e4;
+  --display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  --body: "Atkinson Hyperlegible", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f141b; --surface: #171e28; --sunken: #121820; --ink: #e7ecf2; --muted: #9aa6b6;
+    --line: #29333f; --accent: #6ea3f2; --accent-ink: #0b1220; --mark: #f5c431;
+    --good: #5cc98a; --warn: #e6b450; --warn-bg: #3a2c12; --bad: #f07a6c; --bad-bg: #3d1a17;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f141b; --surface: #171e28; --sunken: #121820; --ink: #e7ecf2; --muted: #9aa6b6;
+  --line: #29333f; --accent: #6ea3f2; --accent-ink: #0b1220; --mark: #f5c431;
+  --good: #5cc98a; --warn: #e6b450; --warn-bg: #3a2c12; --bad: #f07a6c; --bad-bg: #3d1a17;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--ink); font: 15px/1.5 var(--body); }
+[hidden] { display: none !important; }
+img { max-width: 100%; }
+button, input, select { font: inherit; color: inherit; }
+a { color: var(--accent); }
+
+header {
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(8px); border-bottom: 1px solid var(--line);
+}
+.bar { max-width: 980px; margin: 0 auto; padding: 10px 16px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.brand { font: 800 21px/1 var(--display); letter-spacing: -0.02em; display: flex; align-items: center; gap: 8px; margin-right: auto; }
+.brand svg { flex: none; }
+nav { display: flex; background: var(--sunken); border-radius: 999px; padding: 3px; }
+nav button {
+  border: 0; background: none; padding: 6px 14px; border-radius: 999px; cursor: pointer; color: var(--muted); font-weight: 700;
+}
+nav button[aria-selected="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgb(0 0 0 / 0.12); }
+nav .count { font: 500 11px var(--mono); margin-left: 4px; color: var(--muted); }
+.icon-btn { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; width: 34px; height: 34px; display: grid; place-items: center; cursor: pointer; }
+
+main { max-width: 980px; margin: 0 auto; padding: 20px 16px 64px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; }
+.view { grid-template-columns: minmax(0, 1fr); }
+.view > * { min-width: 0; }
+.del { border: 0; background: none; color: var(--muted); width: 32px; height: 32px; border-radius: 6px; cursor: pointer; font-size: 20px; line-height: 1; }
+.del:hover { color: var(--bad); background: var(--bad-bg); }
+h1, h2, h3 { font-family: var(--display); letter-spacing: -0.015em; text-wrap: balance; margin: 0; }
+h1 { font-size: 26px; font-weight: 800; }
+h2 { font-size: 19px; font-weight: 600; }
+.lede { color: var(--muted); margin: 4px 0 0; max-width: 62ch; }
+.label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.mono { font-family: var(--mono); font-size: 13px; }
+.muted { color: var(--muted); }
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.spacer { margin-left: auto; }
+
+.btn {
+  border: 1px solid var(--line); background: var(--surface); padding: 9px 14px; border-radius: 8px; cursor: pointer; font-weight: 700;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.danger { color: var(--bad); }
+.btn:disabled { opacity: 0.5; cursor: default; }
+.btn:focus-visible, nav button:focus-visible, .icon-btn:focus-visible, input:focus-visible, select:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+input[type="text"], input[type="password"], input[type="number"], select {
+  border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 8px 10px; min-width: 0;
+}
+
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; display: grid; gap: 14px; min-width: 0; }
+
+.drop {
+  border: 2px dashed var(--line); border-radius: var(--radius); padding: 22px 16px; display: grid; gap: 8px; justify-items: center; text-align: center;
+  background: var(--surface); cursor: pointer;
+}
+.drop.over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 7%, var(--surface)); }
+.tips { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin: 0; padding: 0; list-style: none; }
+.tips li { background: var(--sunken); border-radius: 8px; padding: 10px 12px; font-size: 14px; }
+.tips b { display: block; }
+
+.controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px 20px; }
+.controls label { display: grid; gap: 4px; font-size: 14px; }
+.controls output { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+input[type="range"] { accent-color: var(--accent); width: 100%; }
+
+.photos { display: grid; gap: 14px; }
+.photo { display: grid; gap: 8px; }
+.photo canvas { width: 100%; height: auto; border-radius: 8px; display: block; background: var(--sunken); cursor: crosshair; }
+.photo .row { font-size: 14px; }
+
+.notice { border-radius: 8px; padding: 10px 12px; font-size: 14px; background: var(--warn-bg); color: var(--ink); border-left: 4px solid var(--warn); }
+.notice.bad { background: var(--bad-bg); border-left-color: var(--bad); }
+
+.progress { height: 8px; border-radius: 999px; background: var(--sunken); overflow: hidden; }
+.progress > i { display: block; height: 100%; background: var(--accent); width: 0; transition: width 0.25s; }
+.progress.good > i { background: var(--good); }
+
+.review { display: grid; gap: 8px; }
+.item {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px 12px; align-items: center;
+  padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface);
+}
+.item.skip { opacity: 0.45; }
+.item .thumb { width: 64px; height: 64px; object-fit: contain; background: var(--sunken); border-radius: 6px; }
+.item .fields { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1.2fr); gap: 6px; min-width: 0; }
+.item select { width: 100%; }
+.item .side { display: grid; gap: 6px; justify-items: end; }
+.item input[type="number"] { width: 62px; text-align: right; }
+.chip { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+.chip.warn { background: var(--warn-bg); color: var(--warn); }
+.chip.bad { background: var(--bad-bg); color: var(--bad); }
+.chip.ok { background: color-mix(in srgb, var(--good) 15%, transparent); color: var(--good); }
+.swatch { width: 14px; height: 14px; border-radius: 3px; display: inline-block; vertical-align: -2px; border: 1px solid rgb(0 0 0 / 0.2); flex: none; }
+
+.stats { display: flex; gap: 24px; flex-wrap: wrap; }
+.stat b { display: block; font: 800 28px/1.1 var(--display); font-variant-numeric: tabular-nums; }
+.stat span { font-size: 13px; color: var(--muted); }
+
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; background: var(--surface); }
+th { text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); padding: 8px 10px; border-bottom: 1px solid var(--line); background: var(--sunken); white-space: nowrap; }
+td { padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+tr:last-child td { border-bottom: 0; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+td img { width: 40px; height: 40px; object-fit: contain; display: block; }
+tr.missing td { background: color-mix(in srgb, var(--bad) 7%, transparent); }
+tr.partial td { background: color-mix(in srgb, var(--warn) 9%, transparent); }
+.qty { display: inline-flex; align-items: center; gap: 4px; }
+.qty button { width: 28px; height: 28px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; }
+.qty span { min-width: 2.2ch; text-align: center; font-variant-numeric: tabular-nums; font-weight: 700; }
+
+.setcard { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 16px; align-items: center; }
+.setcard img { width: 120px; height: 90px; object-fit: contain; background: #fff; border-radius: 8px; }
+.empty { text-align: center; color: var(--muted); padding: 28px 12px; display: grid; gap: 6px; justify-items: center; }
+.confirm { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; background: var(--bad-bg); padding: 8px 12px; border-radius: 8px; }
+dialog { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); color: var(--ink); padding: 20px; width: min(460px, calc(100vw - 32px)); }
+dialog::backdrop { background: rgb(0 0 0 / 0.4); }
+dialog form { display: grid; gap: 12px; }
+.toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 999px; font-weight: 700; z-index: 20; max-width: calc(100vw - 32px); }
+
+.setchips { display: grid; gap: 8px; }
+.setchip { display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; }
+.setchip img { width: 56px; height: 42px; object-fit: contain; background: #fff; border-radius: 4px; }
+.setchip .t { min-width: 0; }
+.setchip .t b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.note { grid-column: 2 / -1; font-size: 13px; color: var(--muted); }
+.pair { display: flex; gap: 4px; }
+.pair figure { margin: 0; display: grid; gap: 2px; justify-items: center; }
+.pair figcaption { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.pair img { width: 64px; height: 64px; object-fit: contain; background: var(--sunken); border-radius: 6px; display: block; }
+.pair img.ref, .cand img { background: #fff; }
+.links { grid-column: 1 / -1; display: flex; gap: 6px 12px; flex-wrap: wrap; align-items: center; font-size: 13px; }
+.links a { font-weight: 700; text-decoration: none; white-space: nowrap; }
+.links a:hover { text-decoration: underline; }
+.price { font: 500 12px var(--mono); padding: 2px 8px; border-radius: 999px; background: color-mix(in srgb, var(--good) 15%, transparent); white-space: nowrap; }
+.price.none { background: var(--sunken); color: var(--muted); }
+.figpick { display: inline-flex; gap: 5px; align-items: center; cursor: pointer; white-space: nowrap; }
+.figbar { display: grid; gap: 10px; padding: 12px; border-radius: 8px; background: color-mix(in srgb, var(--mark) 16%, var(--surface)); }
+.cand { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; gap: 10px 12px; align-items: center; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.cand img { width: 64px; height: 64px; object-fit: contain; border-radius: 6px; }
+.cand .links { grid-column: auto; }
+fieldset { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: grid; gap: 10px; margin: 0; }
+legend { font-weight: 700; padding: 0 4px; }
+.note b { color: var(--ink); font-weight: 700; }
+details.setblock > summary { cursor: pointer; font-weight: 700; color: var(--accent); padding: 4px 0; }
+.finder-box { display: grid; gap: 10px; padding: 12px; border-radius: 8px; background: var(--sunken); }
+.sugg { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; align-items: start; }
+.sugg img { width: 96px; height: 72px; object-fit: contain; background: #fff; border-radius: 6px; }
+.sugg .rank { font: 800 13px var(--mono); color: var(--muted); }
+.sugg .clues { font-size: 13px; color: var(--muted); }
+.meter { height: 6px; border-radius: 999px; background: var(--sunken); overflow: hidden; max-width: 240px; }
+.meter > i { display: block; height: 100%; background: var(--accent); }
+@media (max-width: 560px) { .sugg { grid-template-columns: 64px minmax(0, 1fr); } .sugg img { width: 64px; height: 48px; } }
+.chip.fig { background: color-mix(in srgb, var(--mark) 30%, transparent); color: var(--ink); }
+.figrow { display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 8px 10px; border-top: 1px solid var(--line); }
+.figrow img { width: 56px; height: 56px; object-fit: contain; background: #fff; border-radius: 6px; }
+.figrow.missing { background: color-mix(in srgb, var(--bad) 7%, transparent); }
+.figs { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.figs h3 { font-size: 15px; padding: 8px 10px; margin: 0; background: var(--sunken); }
+.check { display: flex; gap: 8px; align-items: center; font-size: 14px; }
+.chip.star { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
+@media (max-width: 560px) {
+  td, th { padding: 8px 6px; }
+  td img { width: 32px; height: 32px; }
+  .item { grid-template-columns: minmax(0, 1fr); }
+  .item .thumb { width: 56px; height: 56px; }
+  .item .fields { grid-template-columns: 1fr; }
+  .item .side { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; }
+  .note { grid-column: 1 / -1; }
+  .pair img { width: 52px; height: 52px; }
+  .cand { grid-template-columns: 52px minmax(0, 1fr); } .cand img { width: 52px; height: 52px; } .cand > button { grid-column: 1 / -1; }
+  .setcard { grid-template-columns: 1fr; }
+  nav button { padding: 6px 10px; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <div class="brand">
+      <svg width="26" height="22" viewBox="0 0 26 22" aria-hidden="true"><rect x="1" y="7" width="24" height="14" rx="2" fill="var(--mark)"/><rect x="4" y="2" width="7" height="6" rx="1.5" fill="var(--mark)"/><rect x="15" y="2" width="7" height="6" rx="1.5" fill="var(--mark)"/><rect x="1" y="7" width="24" height="14" rx="2" fill="none" stroke="var(--ink)" stroke-opacity=".25"/></svg>
+      Brick Sorter
+    </div>
+    <nav role="tablist" aria-label="Sections">
+      <button role="tab" id="tab-scan" aria-selected="true" data-view="scan">Scan</button>
+      <button role="tab" id="tab-inv" aria-selected="false" data-view="inv">Inventory<span class="count" id="inv-count">0</span></button>
+      <button role="tab" id="tab-set" aria-selected="false" data-view="set">Set check</button>
+    </nav>
+    <button class="icon-btn" id="open-settings" title="Settings" aria-label="Settings">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+    </button>
+  </div>
+</header>
+
+<main>
+  <!-- SCAN -->
+  <section id="view-scan" class="view" style="display:grid;gap:20px">
+    <div>
+      <h1>Photograph a pile, get a parts list</h1>
+      <p class="lede">Each photo is split into individual items, then each one is identified by Brickognize: parts with their likely colour, and minifigures as whole figures. Check the guesses and add them to your inventory.</p>
+    </div>
+
+    <div class="panel" id="expect-panel">
+      <div>
+        <h2>Sets in this pile <span class="muted" style="font-family:var(--body);font-weight:400;font-size:14px">optional</span></h2>
+        <p class="muted" style="margin:4px 0 0;font-size:14px;max-width:62ch">Add the sets you think these parts came from. Guesses that fit them are preferred and colours are limited to the ones each part comes in. Parts from other sets are still accepted, but flagged for checking.</p>
+      </div>
+      <form class="row" id="expect-form">
+        <input type="text" id="expect-num" placeholder="Set number, e.g. 10696" style="flex:1 1 180px" autocomplete="off">
+        <button class="btn" type="submit" id="expect-add">Add set</button>
+      </form>
+      <div class="notice" id="expect-key" hidden>Adding sets needs a free Rebrickable API key. <button class="btn" type="button" id="expect-key-btn" style="margin-left:6px">Add key</button></div>
+      <div class="notice bad" id="expect-error" hidden></div>
+      <div class="setchips" id="expect-list"></div>
+    </div>
+
+    <div class="panel" id="finder-panel">
+      <div>
+        <h2>Part finder</h2>
+        <p class="muted" style="margin:4px 0 0;font-size:14px;max-width:62ch">How each photo is split into separate items. The background method needs items spread out on a plain background. Your brick detector also separates parts that touch. The figure finder picks out minifigures, even standing on a display shelf.</p>
+      </div>
+      <div class="row">
+        <span class="label">Find parts with</span>
+        <nav aria-label="Find parts with" id="finder-nav"><button type="button" data-finder="builtin">Background method</button><button type="button" data-finder="trained">Brick detector</button><button type="button" data-finder="figures">Figure finder</button></nav>
+      </div>
+      <div class="finder-box" id="trained-box" hidden>
+        <div class="row" id="det-loaded" hidden>
+          <span class="chip ok" id="det-chip">Loaded</span>
+          <span class="mono" id="det-name"></span>
+          <span class="muted" id="det-info"></span>
+          <button class="btn spacer" type="button" id="det-remove">Remove detector</button>
+        </div>
+        <div id="det-empty" hidden style="display:grid;gap:8px">
+          <span id="det-empty-text"></span>
+          <div class="row"><label class="btn primary" for="det-file" style="cursor:pointer"><span id="det-load-label">Load detector (.onnx)</span><input type="file" id="det-file" accept=".onnx" hidden></label></div>
+        </div>
+        <div class="notice bad" id="det-error" hidden></div>
+        <label class="check" for="det-gpu" id="det-gpu-wrap"><input type="checkbox" id="det-gpu" checked> Use the graphics card when the browser supports it (untick to run on the CPU: slower, but use it to compare if results look wrong)</label>
+        <label for="det-conf" id="det-conf-wrap" style="display:grid;gap:4px;font-size:14px;max-width:420px">Confidence <output id="det-conf-out">0.30</output>
+          <input type="range" id="det-conf" min="0.05" max="0.9" step="0.05" value="0.3">
+          <span class="muted" style="font-size:13px" id="det-conf-help">Lower if parts are missed. Raise if it boxes things that aren't parts.</span>
+        </label>
+      </div>
+    </div>
+
+    <label class="drop" id="drop" for="file">
+      <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.8" aria-hidden="true"><path d="M4 7h3l2-3h6l2 3h3a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="4"/></svg>
+      <strong>Take or choose photos</strong>
+      <span class="muted">Several photos at once is fine. You can also drop them here.</span>
+      <input type="file" id="file" accept="image/*" multiple hidden>
+    </label>
+
+    <ul class="tips">
+      <li><b>Plain background</b>White paper for dark parts, a dark cloth for white or clear parts.</li>
+      <li><b>Spread them out</b>Parts that touch are read as one part. Leave a finger's width between them.</li>
+      <li><b>Shoot from above</b>Even light, no flash, parts filling most of the frame.</li>
+    </ul>
+
+    <div class="panel" id="detect-panel" hidden>
+      <div class="row">
+        <h2>Detected items</h2>
+        <span class="muted" id="detect-summary"></span>
+        <button class="btn spacer" id="clear-photos">Clear photos</button>
+      </div>
+      <div class="controls" id="builtin-box">
+        <label for="sens">Sensitivity <output id="sens-out">1.0</output>
+          <input type="range" id="sens" min="0.5" max="2" step="0.1" value="1">
+          <span class="muted" style="font-size:13px">Raise if parts are missed. Lower if shadows or specks become parts.</span>
+        </label>
+        <label for="minsize">Smallest part <output id="minsize-out">3</output>
+          <input type="range" id="minsize" min="1" max="20" step="1" value="3">
+          <span class="muted" style="font-size:13px">Raise to ignore crumbs and dust.</span>
+        </label>
+      </div>
+      <p class="muted" style="margin:0;font-size:14px">Tap a box to leave that item out. Tap again to bring it back.</p>
+      <div class="photos" id="photos"></div>
+      <div class="row">
+        <span class="label">What's in these photos?</span>
+        <nav aria-label="What's in these photos" id="mode-nav"><button type="button" data-mode="parts">Parts</button><button type="button" data-mode="figs">Minifigures</button><button type="button" data-mode="mixed">Mixed</button></nav>
+      </div>
+      <p class="muted" style="margin:0;font-size:14px" id="mode-hint"></p>
+      <div class="row">
+        <button class="btn primary" id="identify">Identify parts</button>
+        <span class="muted" id="identify-status"></span>
+      </div>
+      <div class="progress" id="identify-progress" hidden><i></i></div>
+      <div class="notice bad" id="identify-error" hidden></div>
+    </div>
+
+    <div class="panel" id="review-panel" hidden>
+      <div class="row">
+        <h2>Check and add</h2>
+        <span class="muted" id="review-summary"></span>
+      </div>
+      <div class="figbar" id="figbar" hidden>
+        <div class="row">
+          <div style="min-width:0;flex:1 1 240px"><strong id="figbar-title"></strong>
+            <div class="muted" style="font-size:13px">Tick the loose head, torso, legs and other parts of one figure, then find which minifigure they come from. Printed torsos and heads are the best clues.</div></div>
+          <button class="btn primary" type="button" id="namefig-go">Name the figure</button>
+        </div>
+        <span class="muted" id="namefig-status" style="font-size:14px"></span>
+        <div class="notice bad" id="namefig-error" hidden></div>
+        <div id="namefig-result" style="display:grid;gap:8px"></div>
+      </div>
+      <div class="review" id="review"></div>
+      <div class="row">
+        <button class="btn primary" id="add-all">Add to inventory</button>
+        <button class="btn" id="discard-review">Discard</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- INVENTORY -->
+  <section id="view-inv" class="view" hidden style="display:grid;gap:20px">
+    <div class="row">
+      <div>
+        <h1>Inventory</h1>
+        <p class="lede">Saved in this browser. Export it to keep a copy or to move it to another device. The CSV works with the Python script too.</p>
+      </div>
+    </div>
+    <div class="stats" id="inv-stats"></div>
+    <div class="row">
+      <input type="text" id="inv-filter" placeholder="Filter by part, name or colour" style="flex:1 1 220px">
+      <button class="btn" id="inv-prices" hidden>Get BrickLink prices</button>
+      <button class="btn" id="export-inv">Export CSV</button>
+      <label class="btn" for="import-inv" style="cursor:pointer">Import CSV<input type="file" id="import-inv" accept=".csv,text/csv" hidden></label>
+      <button class="btn danger" id="clear-inv">Clear</button>
+    </div>
+    <div class="confirm" id="clear-confirm" hidden>
+      <span>Delete every part from the inventory? This can't be undone.</span>
+      <button class="btn danger" id="clear-yes">Delete all</button>
+      <button class="btn" id="clear-no">Keep</button>
+    </div>
+    <div id="inv-table"></div>
+  </section>
+
+  <!-- SET CHECK -->
+  <section id="view-set" class="view" hidden style="display:grid;gap:20px">
+    <div>
+      <h1>Can I build it?</h1>
+      <p class="lede">Enter a set number to compare its parts list from Rebrickable with your inventory. Spare parts are left out.</p>
+    </div>
+    <label class="check" for="figs-whole"><input type="checkbox" id="figs-whole" checked> Check minifigures as whole figures (untick to count their heads, torsos and legs as parts)</label>
+    <div class="panel" id="expect-check" hidden>
+      <div class="row">
+        <div style="min-width:0;flex:1 1 220px"><strong id="expect-check-title"></strong><div class="muted" style="font-size:14px">Pieces are shared out in the order the sets are listed, so none is counted twice.</div></div>
+        <button class="btn primary" type="button" id="check-expected">Check these sets</button>
+      </div>
+    </div>
+    <div class="panel" id="suggest-panel">
+      <div class="row">
+        <div style="min-width:0;flex:1 1 260px">
+          <h2>Which sets is this from?</h2>
+          <p class="muted" style="margin:4px 0 0;font-size:14px;max-width:62ch">Finds sets that contain your inventory's rarer parts and minifigures, then checks the best matches against their full parts lists. Common bricks are in thousands of sets, so they count for little. The first run takes a few minutes; Rebrickable lookups are remembered for next time.</p>
+        </div>
+        <button class="btn primary" type="button" id="suggest-go">Suggest sets</button>
+      </div>
+      <div class="progress" id="suggest-progress" hidden><i></i></div>
+      <span class="muted" id="suggest-status" style="font-size:14px"></span>
+      <div class="notice bad" id="suggest-error" hidden></div>
+      <div id="suggest-result" style="display:grid;gap:10px"></div>
+    </div>
+    <form class="row" id="set-form">
+      <input type="text" id="set-num" placeholder="Set number, e.g. 10696" style="flex:1 1 200px" autocomplete="off" inputmode="text">
+      <button class="btn primary" type="submit" id="set-go">Check set</button>
+    </form>
+    <div class="notice" id="key-needed" hidden>Set checks need a free Rebrickable API key. <button class="btn" type="button" id="key-needed-btn" style="margin-left:6px">Add key</button></div>
+    <div class="notice bad" id="set-error" hidden></div>
+    <div id="set-result"></div>
+  </section>
+</main>
+
+<dialog id="settings">
+  <form method="dialog" id="settings-form">
+    <h2>Settings</h2>
+    <label for="rb-key" style="display:grid;gap:4px">
+      <span class="label">Rebrickable API key</span>
+      <input type="password" id="rb-key" autocomplete="off" placeholder="Paste your key">
+      <span class="muted" style="font-size:13px">Free: sign in at <a href="https://rebrickable.com/api/" target="_blank" rel="noopener">rebrickable.com/api</a>, then Settings → API. Stored only in this browser.</span>
+    </label>
+    <fieldset>
+      <legend>BrickLink prices</legend>
+      <span class="muted" style="font-size:13px" id="bl-state"></span>
+      <div class="row" style="gap:10px;align-items:end">
+        <label for="bl-cond" style="display:grid;gap:4px"><span class="label">Condition</span>
+          <select id="bl-cond"><option value="U">Used</option><option value="N">New</option></select></label>
+        <label for="bl-guide" style="display:grid;gap:4px"><span class="label">Price from</span>
+          <select id="bl-guide"><option value="sold">Sales, last 6 months</option><option value="stock">Items for sale now</option></select></label>
+        <label for="bl-cur" style="display:grid;gap:4px"><span class="label">Currency</span>
+          <input type="text" id="bl-cur" maxlength="3" placeholder="AUD" style="width:80px;text-transform:uppercase" autocomplete="off"></label>
+      </div>
+    </fieldset>
+    <label for="theme" style="display:grid;gap:4px">
+      <span class="label">Theme</span>
+      <select id="theme"><option value="">Match device</option><option value="light">Light</option><option value="dark">Dark</option></select>
+    </label>
+    <div class="row"><button class="btn primary" value="save">Save</button><button class="btn" value="cancel" formnovalidate>Cancel</button></div>
+  </form>
+</dialog>
+
+<div class="toast" id="toast" hidden role="status"></div>
+
+<!-- ======================= core logic (no DOM) ======================= -->
+<script id="core">
+"use strict";
+const Core = (() => {
+  // ---- colour space -------------------------------------------------
+  const LIN = new Float32Array(256);
+  for (let i = 0; i < 256; i++) { const c = i / 255; LIN[i] = c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); }
+  const f = t => t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116;
+  function toLab(rgba, n) {
+    const out = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      const r = LIN[rgba[i * 4]], g = LIN[rgba[i * 4 + 1]], b = LIN[rgba[i * 4 + 2]];
+      const x = (r * 0.4124 + g * 0.3576 + b * 0.1805) / 0.95047;
+      const y = r * 0.2126 + g * 0.7152 + b * 0.0722;
+      const z = (r * 0.0193 + g * 0.1192 + b * 0.9505) / 1.08883;
+      const fx = f(x), fy = f(y), fz = f(z);
+      out[i * 3] = 116 * fy - 16; out[i * 3 + 1] = 500 * (fx - fy); out[i * 3 + 2] = 200 * (fy - fz);
+    }
+    return out;
+  }
+
+  // ---- small image helpers -----------------------------------------
+  function boxBlurRGBA(src, w, h) {           // 3x3 box blur, twice ~ gaussian 5x5
+    let a = new Uint8ClampedArray(src), b = new Uint8ClampedArray(src.length);
+    for (let pass = 0; pass < 2; pass++) {
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+        for (let c = 0; c < 3; c++) {
+          let s = 0, k = 0;
+          for (let dy = -1; dy <= 1; dy++) { const yy = y + dy; if (yy < 0 || yy >= h) continue;
+            for (let dx = -1; dx <= 1; dx++) { const xx = x + dx; if (xx < 0 || xx >= w) continue; s += a[(yy * w + xx) * 4 + c]; k++; } }
+          b[(y * w + x) * 4 + c] = s / k;
+        }
+        b[(y * w + x) * 4 + 3] = 255;
+      }
+      [a, b] = [b, a];
+    }
+    return a;
+  }
+  function morph(mask, w, h, r, dilate) {     // square structuring element, separable
+    const tmp = new Uint8Array(mask.length), out = new Uint8Array(mask.length);
+    const hit = dilate ? 1 : 0;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      let v = dilate ? 0 : 1;
+      for (let d = -r; d <= r; d++) { const xx = x + d; if (xx < 0 || xx >= w) continue; if (mask[y * w + xx] === hit) { v = hit; break; } }
+      tmp[y * w + x] = v;
+    }
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      let v = dilate ? 0 : 1;
+      for (let d = -r; d <= r; d++) { const yy = y + d; if (yy < 0 || yy >= h) continue; if (tmp[yy * w + x] === hit) { v = hit; break; } }
+      out[y * w + x] = v;
+    }
+    return out;
+  }
+  const median = arr => { if (!arr.length) return 0; const s = Float32Array.from(arr).sort(); return s[s.length >> 1]; };
+
+  // ---- detection ----------------------------------------------------
+  // rgba: pixel data already scaled so the long side is ~1000px.
+  // Returns boxes {x0,y0,x1,y1} in those pixel coordinates.
+  function detectParts(rgba, w, h, opts = {}) {
+    const sensitivity = opts.sensitivity ?? 1, minSize = opts.minSize ?? 0.0003;
+    const n = w * h;
+    const lab = toLab(boxBlurRGBA(rgba, w, h), n);
+
+    function background(fg) {
+      const gy = 12, gx = Math.max(1, Math.round(12 * w / h));
+      const grid = new Float32Array(gx * gy * 3), ok = new Uint8Array(gx * gy);
+      for (let j = 0; j < gy; j++) for (let i = 0; i < gx; i++) {
+        const y0 = Math.floor(j * h / gy), y1 = Math.floor((j + 1) * h / gy);
+        const x0 = Math.floor(i * w / gx), x1 = Math.floor((i + 1) * w / gx);
+        const L = [], A = [], B = [];
+        for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+          const p = y * w + x; if (fg && fg[p]) continue;
+          L.push(lab[p * 3]); A.push(lab[p * 3 + 1]); B.push(lab[p * 3 + 2]);
+        }
+        if (L.length > 0.2 * (y1 - y0) * (x1 - x0)) {
+          const k = (j * gx + i) * 3; grid[k] = median(L); grid[k + 1] = median(A); grid[k + 2] = median(B); ok[j * gx + i] = 1;
+        }
+      }
+      for (let c = 0; c < 3; c++) {                       // fill empty cells, then 3x3 median
+        const vals = []; for (let k = 0; k < gx * gy; k++) if (ok[k]) vals.push(grid[k * 3 + c]);
+        const fill = vals.length ? median(vals) : 0;
+        for (let k = 0; k < gx * gy; k++) if (!ok[k]) grid[k * 3 + c] = fill;
+        const copy = grid.slice();
+        for (let j = 0; j < gy; j++) for (let i = 0; i < gx; i++) {
+          const nb = [];
+          for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+            const jj = Math.min(gy - 1, Math.max(0, j + dj)), ii = Math.min(gx - 1, Math.max(0, i + di));
+            nb.push(copy[(jj * gx + ii) * 3 + c]);
+          }
+          grid[(j * gx + i) * 3 + c] = median(nb);
+        }
+      }
+      const bg = new Float32Array(n * 3);                   // bilinear upsample from cell centres
+      for (let y = 0; y < h; y++) {
+        let gyf = (y + 0.5) * gy / h - 0.5; gyf = Math.min(gy - 1, Math.max(0, gyf));
+        const j0 = Math.floor(gyf), j1 = Math.min(gy - 1, j0 + 1), ty = gyf - j0;
+        for (let x = 0; x < w; x++) {
+          let gxf = (x + 0.5) * gx / w - 0.5; gxf = Math.min(gx - 1, Math.max(0, gxf));
+          const i0 = Math.floor(gxf), i1 = Math.min(gx - 1, i0 + 1), tx = gxf - i0;
+          for (let c = 0; c < 3; c++) {
+            const a = grid[(j0 * gx + i0) * 3 + c], b = grid[(j0 * gx + i1) * 3 + c];
+            const d = grid[(j1 * gx + i0) * 3 + c], e = grid[(j1 * gx + i1) * 3 + c];
+            bg[(y * w + x) * 3 + c] = (a * (1 - tx) + b * tx) * (1 - ty) + (d * (1 - tx) + e * tx) * ty;
+          }
+        }
+      }
+      return bg;
+    }
+    function difference(bg) {
+      const d = new Float32Array(n);
+      for (let p = 0; p < n; p++) {
+        const dl = Math.abs(lab[p * 3] - bg[p * 3]);
+        const da = lab[p * 3 + 1] - bg[p * 3 + 1], db = lab[p * 3 + 2] - bg[p * 3 + 2];
+        d[p] = Math.max(Math.sqrt(da * da + db * db) * 1.4, dl * 0.8);
+      }
+      return d;
+    }
+    function threshold(diff, fg) {
+      const vals = [];
+      for (let p = 0; p < n; p += 3) if (!fg || !fg[p]) vals.push(diff[p]);
+      const med = median(vals);
+      const mad = median(vals.map(v => Math.abs(v - med))) * 1.4826;
+      return Math.max(6, med + 6 * mad) / Math.max(sensitivity, 0.1);
+    }
+
+    let diff = difference(background(null));
+    let t = threshold(diff, null);
+    let first = new Uint8Array(n); for (let p = 0; p < n; p++) first[p] = diff[p] > t ? 1 : 0;
+    first = morph(first, w, h, 4, true);
+    diff = difference(background(first));
+    t = threshold(diff, first);
+    let mask = new Uint8Array(n); for (let p = 0; p < n; p++) mask[p] = diff[p] > t ? 1 : 0;
+
+    const r = Math.max(2, Math.round(0.006 * Math.max(w, h)));
+    mask = morph(morph(mask, w, h, r, true), w, h, r, false);   // close
+    mask = morph(morph(mask, w, h, 1, false), w, h, 1, true);   // open
+
+    // connected components, 8-connected
+    const label = new Int32Array(n), stack = new Int32Array(n);
+    const boxes = [], minArea = minSize * n;
+    let next = 0;
+    for (let s = 0; s < n; s++) {
+      if (!mask[s] || label[s]) continue;
+      next++; let sp = 0; stack[sp++] = s; label[s] = next;
+      let x0 = w, y0 = h, x1 = 0, y1 = 0, area = 0;
+      while (sp) {
+        const p = stack[--sp], px = p % w, py = (p / w) | 0; area++;
+        if (px < x0) x0 = px; if (px > x1) x1 = px; if (py < y0) y0 = py; if (py > y1) y1 = py;
+        for (let dy = -1; dy <= 1; dy++) { const yy = py + dy; if (yy < 0 || yy >= h) continue;
+          for (let dx = -1; dx <= 1; dx++) { const xx = px + dx; if (xx < 0 || xx >= w) continue;
+            const q = yy * w + xx; if (mask[q] && !label[q]) { label[q] = next; stack[sp++] = q; } } }
+      }
+      const bw = x1 - x0 + 1, bh = y1 - y0 + 1;
+      if (area < minArea || bw * bh > 0.6 * n) continue;
+      const pad = Math.round(0.12 * Math.max(bw, bh)) + 4;
+      boxes.push({ x0: Math.max(0, x0 - pad), y0: Math.max(0, y0 - pad), x1: Math.min(w, x1 + 1 + pad), y1: Math.min(h, y1 + 1 + pad) });
+    }
+    const band = Math.max(1, Math.round(0.08 * h));
+    boxes.sort((a, b) => (Math.floor(a.y0 / band) - Math.floor(b.y0 / band)) || (a.x0 - b.x0));
+    return boxes;
+  }
+
+  // ---- CSV ----------------------------------------------------------
+  function parseCSV(text) {
+    const rows = []; let row = [], cell = "", q = false;
+    text = text.replace(/^﻿/, "");
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (q) { if (ch === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += ch; }
+      else if (ch === '"') q = true;
+      else if (ch === ",") { row.push(cell); cell = ""; }
+      else if (ch === "\n" || ch === "\r") { if (ch === "\r" && text[i + 1] === "\n") i++; row.push(cell); rows.push(row); row = []; cell = ""; }
+      else cell += ch;
+    }
+    if (cell || row.length) { row.push(cell); rows.push(row); }
+    const head = (rows.shift() || []).map(h => h.trim());
+    return rows.filter(r => r.some(c => c.trim())).map(r => Object.fromEntries(head.map((h, i) => [h, (r[i] ?? "").trim()])));
+  }
+  function toCSV(rows, fields) {
+    const esc = v => { v = v == null ? "" : String(v); return /[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+    return [fields.join(","), ...rows.map(r => fields.map(k => esc(r[k])).join(","))].join("\r\n") + "\r\n";
+  }
+
+  // ---- set comparison ----------------------------------------------
+  const normColor = s => (s || "").toLowerCase().replace(/grey/g, "gray").replace(/[^a-z0-9]/g, "");
+  const loosePart = s => { const m = /^(\d+)[a-z]$/.exec((s || "").toLowerCase()); return m ? m[1] : (s || "").toLowerCase(); };
+  function buildColorLookup(colors) {
+    const map = new Map();
+    for (const c of colors) {
+      map.set(normColor(c.name), c.id);
+      const bl = c.external_ids && c.external_ids.BrickLink;
+      for (const names of (bl && bl.ext_descrs) || []) for (const nm of names) if (!map.has(normColor(nm))) map.set(normColor(nm), c.id);
+    }
+    return map;
+  }
+  // lines: [{part_num, bl_ids[], name, color_id, color_name, quantity, img}]
+  // inventory: [{part_id, bricklink_id, rb_part, color_name, quantity, part_name}]
+  // Returns the lines with have/missing, plus leftover inventory rows (same shape
+  // as the input), so several sets can be checked in turn without double counting.
+  function compareSet(lines, inventory, lookup) {
+    const others = inventory.filter(r => rowType(r) !== "part");
+    const pool = inventory.filter(r => rowType(r) === "part" && (r.part_id || r.rb_part)).map(r => ({
+      pid: String(r.part_id || "").toLowerCase(), blid: String(r.bricklink_id || "").toLowerCase(),
+      rb: String(r.rb_part || "").toLowerCase(),
+      cid: r.color_name ? (lookup.get(normColor(r.color_name)) ?? -999) : null,
+      left: Math.max(0, parseInt(r.quantity, 10) || 1), src: r,
+    }));
+    const partMatch = (it, line, loose) => {
+      const ids = new Set([line.part_num.toLowerCase(), ...line.bl_ids.map(b => b.toLowerCase())]);
+      if ((it.rb && it.rb === line.part_num.toLowerCase()) || (it.pid && ids.has(it.pid)) || (it.blid && ids.has(it.blid))) return true;
+      if (!loose) return false;
+      const l = new Set([...ids].map(loosePart));
+      return [it.pid, it.blid, it.rb].some(x => x && l.has(loosePart(x)));
+    };
+    const out = lines.map(line => {
+      let got = 0, how = "";
+      const passes = [[false, c => c === line.color_id, "exact"], [false, c => c === null, "colour unknown"], [true, c => c === line.color_id, "similar mould"]];
+      for (const [loose, okc, label] of passes) for (const it of pool) {
+        if (got >= line.quantity) break;
+        if (it.left <= 0 || !okc(it.cid) || !partMatch(it, line, loose)) continue;
+        const take = Math.min(it.left, line.quantity - got); it.left -= take; got += take; if (!how) how = label;
+      }
+      return { ...line, have: got, missing: line.quantity - got, match: how };
+    });
+    const extras = others.concat(pool.filter(it => it.left > 0).map(it => ({ ...it.src, quantity: it.left, otherColour: lines.some(l => partMatch(it, l, true)) })));
+    return { lines: out, extras };
+  }
+
+  // ---- trained detector (YOLO exported to ONNX) ---------------------
+  // Same letterbox as Ultralytics: scale to fit, centre, pad with grey 114.
+  function letterbox(w, h, size) {
+    const r = Math.min(size / w, size / h);
+    const nw = Math.round(w * r), nh = Math.round(h * r);
+    const dw = (size - nw) / 2, dh = (size - nh) / 2;
+    return { r, nw, nh, left: Math.round(dw - 0.1), top: Math.round(dh - 0.1), size };
+  }
+  // Bilinear resize matching OpenCV's INTER_LINEAR, which the model was trained with.
+  function resizeBilinear(src, sw, sh, dw, dh) {
+    const out = new Uint8ClampedArray(dw * dh * 4), fx = sw / dw, fy = sh / dh;
+    for (let y = 0; y < dh; y++) {
+      const sy = Math.max(0, (y + 0.5) * fy - 0.5), y0 = Math.min(sh - 1, Math.floor(sy)), y1 = Math.min(sh - 1, y0 + 1), wy = sy - y0;
+      for (let x = 0; x < dw; x++) {
+        const sx = Math.max(0, (x + 0.5) * fx - 0.5), x0 = Math.min(sw - 1, Math.floor(sx)), x1 = Math.min(sw - 1, x0 + 1), wx = sx - x0;
+        const a = (y0 * sw + x0) * 4, b = (y0 * sw + x1) * 4, d = (y1 * sw + x0) * 4, e = (y1 * sw + x1) * 4, o = (y * dw + x) * 4;
+        for (let c = 0; c < 3; c++)
+          out[o + c] = (src[a + c] * (1 - wx) + src[b + c] * wx) * (1 - wy) + (src[d + c] * (1 - wx) + src[e + c] * wx) * wy;
+        out[o + 3] = 255;
+      }
+    }
+    return out;
+  }
+  // Letterboxed model input: the photo resized into a size x size square padded with grey 114.
+  function letterboxPixels(src, w, h, lb) {
+    const small = resizeBilinear(src, w, h, lb.nw, lb.nh), size = lb.size;
+    const out = new Uint8ClampedArray(size * size * 4).fill(114);
+    for (let y = 0; y < lb.nh; y++) out.set(small.subarray(y * lb.nw * 4, (y + 1) * lb.nw * 4), ((y + lb.top) * size + lb.left) * 4);
+    return out;
+  }
+  function toTensor(rgba, size) {            // RGBA bytes -> RGB float32 CHW in 0..1
+    const n = size * size, out = new Float32Array(3 * n);
+    for (let i = 0; i < n; i++) {
+      out[i] = rgba[i * 4] / 255; out[n + i] = rgba[i * 4 + 1] / 255; out[2 * n + i] = rgba[i * 4 + 2] / 255;
+    }
+    return out;
+  }
+  // output: [1, 4 + classes, anchors] -> candidates above minConf, in original-image pixels.
+  // classIdx: only that class (e.g. "person" in a general model); otherwise the best class.
+  function decodeYolo(data, dims, lb, w, h, minConf, classIdx = null) {
+    const rows = dims[1], anchors = dims[2], cands = [];
+    for (let a = 0; a < anchors; a++) {
+      let score = 0;
+      if (classIdx != null) score = data[(4 + classIdx) * anchors + a];
+      else for (let c = 4; c < rows; c++) { const v = data[c * anchors + a]; if (v > score) score = v; }
+      if (score < minConf) continue;
+      const cx = data[a], cy = data[anchors + a], bw = data[2 * anchors + a], bh = data[3 * anchors + a];
+      const x0 = (cx - bw / 2 - lb.left) / lb.r, y0 = (cy - bh / 2 - lb.top) / lb.r;
+      const x1 = (cx + bw / 2 - lb.left) / lb.r, y1 = (cy + bh / 2 - lb.top) / lb.r;
+      cands.push([Math.max(0, x0), Math.max(0, y0), Math.min(w, x1), Math.min(h, y1), score]);
+    }
+    return cands;
+  }
+  function iou(a, b) {
+    const ix = Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0])), iy = Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1]));
+    const inter = ix * iy, u = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter;
+    return u > 0 ? inter / u : 0;
+  }
+  function nms(cands, conf, iouThr = 0.7, maxDet = 1000) {
+    const sorted = cands.filter(c => c[4] >= conf).sort((a, b) => b[4] - a[4]), keep = [];
+    for (const c of sorted) {
+      if (keep.length >= maxDet) break;
+      if (keep.every(k => iou(k, c) <= iouThr)) keep.push(c);
+    }
+    return keep;
+  }
+  // Image size the model was exported at, from its metadata ("imgsz": "[960, 960]").
+  function onnxImgsz(bytes) {
+    const tail = bytes.subarray(Math.max(0, bytes.length - 2_000_000));
+    const text = new TextDecoder("latin1").decode(tail);
+    const m = /imgsz[\s\S]{0,12}?\[(\d+),\s*(\d+)\]/.exec(text);
+    return m ? [+m[1], +m[2]] : null;
+  }
+  // Class names from the model's metadata ("names": "{0: 'person', 1: 'bicycle', ...}").
+  function onnxNames(bytes) {
+    const text = new TextDecoder("latin1").decode(bytes.subarray(Math.max(0, bytes.length - 2_000_000)));
+    const i = text.indexOf("{0: '"); if (i < 0) return {};
+    const j = text.indexOf("}", i), names = {};
+    for (const m of text.slice(i, j).matchAll(/(\d+): '([^']*)'/g)) names[+m[1]] = m[2];
+    return names;
+  }
+  // n x n overlapping tiles covering a w x h image: [x0, y0, x1, y1].
+  function tileRects(w, h, n, overlap = 0.25) {
+    if (n <= 1) return [[0, 0, w, h]];
+    const tw = w / (n - (n - 1) * overlap), th = h / (n - (n - 1) * overlap), sx = tw * (1 - overlap), sy = th * (1 - overlap), out = [];
+    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++)
+      out.push([Math.round(i * sx), Math.round(j * sy), Math.round(Math.min(w, i * sx + tw)), Math.round(Math.min(h, j * sy + th))]);
+    return out;
+  }
+  function cropRGBA(src, sw, x0, y0, x1, y1) {
+    const w = x1 - x0, h = y1 - y0, out = new Uint8ClampedArray(w * h * 4);
+    for (let y = 0; y < h; y++) out.set(src.subarray(((y0 + y) * sw + x0) * 4, ((y0 + y) * sw + x1) * 4), y * w * 4);
+    return out;
+  }
+  // Merge detections from the whole photo and its tiles (same rules as try_world.py):
+  // drop boxes cut off by a tile edge or far too big, remove overlaps, and drop
+  // boxes that mostly sit inside a bigger one. regions: [{rect, cands}] with
+  // candidates in the region's own pixels; returns boxes in full-photo pixels.
+  function mergeTiled(regions, w, h, conf, iouThr = 0.5) {
+    const all = [];
+    for (const { rect: [x0, y0, x1, y1], cands } of regions) {
+      const whole = x0 === 0 && y0 === 0 && x1 === w && y1 === h;
+      for (const [a, b, c, d, sc] of nms(cands, conf, iouThr)) {
+        if (!whole && ((a < 2 && x0 > 0) || (b < 2 && y0 > 0) || (c > x1 - x0 - 2 && x1 < w) || (d > y1 - y0 - 2 && y1 < h))) continue;
+        if ((c - a) * (d - b) > 0.08 * w * h) continue;
+        all.push([a + x0, b + y0, c + x0, d + y0, sc]);
+      }
+    }
+    const kept = nms(all, 0, iouThr, 100000);
+    const area = q => Math.max(0, q[2] - q[0]) * Math.max(0, q[3] - q[1]);
+    return kept.filter(q => !kept.some(o => o !== q && area(o) > area(q) &&
+      Math.max(0, Math.min(q[2], o[2]) - Math.max(q[0], o[0])) * Math.max(0, Math.min(q[3], o[3]) - Math.max(q[1], o[1])) > 0.8 * area(q)));
+  }
+  function sortReading(boxes, h) {
+    const band = Math.max(1, Math.round(0.08 * h));
+    return boxes.sort((a, b) => (Math.floor(a.y0 / band) - Math.floor(b.y0 / band)) || (a.x0 - b.x0));
+  }
+
+  // ---- suggesting sets ----------------------------------------------
+  // A part that appears in few sets is strong evidence; one in thousands is weak.
+  const TOTAL_SETS = 25000, DEFAULT_WEIGHT = 1.5;
+  const rarity = n => Math.log(1 + TOTAL_SETS / Math.max(1, n));
+  // evidence: [{label, weight, sets: [set_num]}] -> candidate sets ranked by summed weight.
+  function tallyCandidates(evidence) {
+    const by = new Map();
+    for (const ev of evidence) for (const sn of new Set(ev.sets)) {
+      if (!by.has(sn)) by.set(sn, { set_num: sn, score: 0, clues: [] });
+      const c = by.get(sn); c.score += ev.weight; c.clues.push(ev.label);
+    }
+    return [...by.values()].sort((a, b) => b.score - a.score || a.set_num.localeCompare(b.set_num));
+  }
+  // Check one candidate set against the whole inventory. weights: Map "part|colour" or "fig|num" -> {weight, label}.
+  // countLines: the set's parts without minifigure parts, for "you have N%" (same as the set check).
+  function scoreCandidate(lines, figs, inventory, lookup, weights, countLines) {
+    const parts = compareSet(lines, inventory, lookup);
+    const f = compareFigs(figs, inventory);
+    let score = 0, have = 0, need = 0, matchedTypes = 0;
+    for (const l of (countLines ? compareSet(countLines, inventory, lookup).lines : parts.lines)) { need += l.quantity; have += l.have; }
+    const clues = [];
+    for (const l of parts.lines) {
+      if (!l.have) continue;
+      matchedTypes++;
+      const w = weights.get(`${l.part_num.toLowerCase()}|${l.color_id}`);
+      score += w ? w.weight : DEFAULT_WEIGHT;
+      if (w) clues.push(w);
+    }
+    for (const l of f.lines) {          // whole figures add evidence; their parts are already in the piece counts
+      if (!l.have) continue;
+      matchedTypes++;
+      const w = weights.get(`fig|${l.fig_num.toLowerCase()}`);
+      score += w ? w.weight : rarity(20);
+      clues.push(w || { weight: rarity(20), label: l.name });
+    }
+    clues.sort((a, b) => b.weight - a.weight);
+    return { score, have, need, matchedTypes, clues: clues.slice(0, 4).map(c => c.label) };
+  }
+
+  // ---- minifigures ---------------------------------------------------
+  const STOP = new Set(["minifig", "minifigure", "figure", "with", "and", "the", "a", "an", "of", "in", "on", "lego"]);
+  const nameTokens = n => new Set(((n || "").toLowerCase().replace(/grey/g, "gray").match(/[a-z0-9]+/g) || []).filter(w => w.length > 1 && !STOP.has(w)));
+  function nameSimilarity(a, b) {          // 0..1 overlap of meaningful words in two names
+    const A = nameTokens(a), B = nameTokens(b);
+    if (!A.size || !B.size) return 0;
+    let n = 0; for (const w of A) if (B.has(w)) n++;
+    return 2 * n / (A.size + B.size);
+  }
+  const FIG_LINK_AT = 0.5, FIG_SURE_AT = 0.75;
+  const rowType = r => String(r.type || "part").toLowerCase() || "part";
+  // Scanned minifigures vs a set's figures. Linked (rb_fig) or same ID first,
+  // then a similar name (marked so it can be checked). Other rows pass through.
+  function compareFigs(lines, inventory) {
+    const pool = [], others = [];
+    for (const r of inventory) (rowType(r) === "fig" ? pool.push({ r, left: Math.max(0, parseInt(r.quantity, 10) || 1) }) : others.push(r));
+    const out = lines.map(line => {
+      let got = 0, how = "";
+      const num = line.fig_num.toLowerCase();
+      for (const method of ["id", "name"]) for (const it of pool) {
+        if (got >= line.quantity) break;
+        if (it.left <= 0) continue;
+        const ok = method === "id" ? (String(it.r.rb_fig || "").toLowerCase() === num || String(it.r.part_id || "").toLowerCase() === num)
+          : !it.r.rb_fig && nameSimilarity(it.r.part_name, line.name) >= FIG_SURE_AT;
+        if (!ok) continue;
+        const take = Math.min(it.left, line.quantity - got); it.left -= take; got += take;
+        if (!how) how = method === "id" ? "linked" : "by name, check";
+      }
+      return { ...line, have: got, missing: line.quantity - got, match: how };
+    });
+    return { lines: out, extras: others.concat(pool.filter(it => it.left > 0).map(it => ({ ...it.r, quantity: it.left }))) };
+  }
+  // Best expected figure for a Brickognize minifigure guess.
+  function matchFig(cat, ids, name) {
+    ids = ids.filter(Boolean).map(x => String(x).toLowerCase());
+    for (const f of cat.figs.values()) if (ids.includes(f.fig_num.toLowerCase())) return { fig: f, sim: 1, how: "same ID" };
+    let best = null, sim = 0;
+    for (const f of cat.figs.values()) { const s = nameSimilarity(name, f.name); if (s > sim) { sim = s; best = f; } }
+    return { fig: sim >= FIG_LINK_AT ? best : null, sim, how: `name match ${Math.round(sim * 100)}%` };
+  }
+  // Expected figures, most similar name first, for the "which figure is this?" list.
+  function figChoices(cat, name) {
+    return [...cat.figs.values()].map(f => ({ f, s: nameSimilarity(name, f.name) })).sort((a, b) => b.s - a.s || a.f.name.localeCompare(b.f.name)).map(x => x.f);
+  }
+
+  // ---- expected sets: steer guesses with the sets' parts lists ------
+  // sets: [{info, lines, figParts, figs}], spares included
+  function buildCatalogue(sets, colors) {
+    const lookup = buildColorLookup(colors), byId = new Map(colors.map(c => [c.id, c]));
+    const index = new Map(), loose = new Map();
+    const figs = new Map();
+    for (const st of sets) for (const f of st.figs || []) {
+      if (!figs.has(f.fig_num)) figs.set(f.fig_num, { ...f, sets: new Set() });
+      figs.get(f.fig_num).sets.add(st.info.set_num);
+    }
+    for (const st of sets) for (const l of st.lines.concat(st.figParts || [])) {
+      let e = index.get(l.part_num.toLowerCase());
+      if (!e) {
+        e = { part_num: l.part_num, name: l.name, bl_ids: l.bl_ids, colors: new Map(), sets: new Set() };
+        for (const pid of [l.part_num, ...l.bl_ids]) {
+          if (!index.has(pid.toLowerCase())) index.set(pid.toLowerCase(), e);
+          if (!loose.has(loosePart(pid))) loose.set(loosePart(pid), e);
+        }
+      }
+      e.colors.set(l.color_id, (e.colors.get(l.color_id) || 0) + l.quantity);
+      e.sets.add(st.info.set_num);
+    }
+    return { lookup, byId, index, loose, figs };
+  }
+  function findEntry(cat, ids) {
+    ids = ids.filter(Boolean).map(x => String(x).toLowerCase());
+    for (const id of ids) if (cat.index.has(id)) return cat.index.get(id);
+    for (const id of ids) if (cat.loose.has(loosePart(id))) return cat.loose.get(loosePart(id));
+    return null;
+  }
+  const BOOST = 0.2;   // bonus for a guess that is in one of your sets
+  function chooseItem(items, entries) {
+    let best = 0, bestScore = -1;
+    items.forEach((it, i) => { const s = (it.score || 0) + (entries[i] ? BOOST : 0); if (s > bestScore) { bestScore = s; best = i; } });
+    return best;
+  }
+  const hexRgb = h => /^[0-9a-f]{6}$/i.test(h || "") ? [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16)) : null;
+  // Pick the colour: the best Brickognize colour this part has in your sets,
+  // else the only colour it has, else the set colour closest to the top guess.
+  function chooseColour(cat, entry, colors) {
+    const allowed = entry.colors;
+    for (let i = 0; i < colors.length; i++) {
+      const id = cat.lookup.get(normColor(colors[i].name));
+      if (allowed.has(id)) return { id, note: i > 0 ? `Colour ${cat.byId.get(id).name} chosen because this part isn't ${colors[0].name} in your sets` : "" };
+    }
+    if (allowed.size === 1) { const id = [...allowed.keys()][0]; return { id, note: `Colour set to ${cat.byId.get(id).name}, the only colour this part has in your sets` }; }
+    const top = colors.length ? cat.byId.get(cat.lookup.get(normColor(colors[0].name))) : null;
+    const target = top && hexRgb(top.rgb);
+    if (target) {
+      let id = null, d = Infinity;
+      for (const a of allowed.keys()) { const c = hexRgb(cat.byId.get(a) && cat.byId.get(a).rgb) || [0, 0, 0]; const dd = c.reduce((s, v, k) => s + (v - target[k]) ** 2, 0); if (dd < d) { d = dd; id = a; } }
+      return { id, note: `Colour set to ${cat.byId.get(id).name}, the closest colour this part has in your sets` };
+    }
+    const id = [...allowed.entries()].sort((a, b) => b[1] - a[1])[0][0];
+    return { id, note: `Colour guessed as ${cat.byId.get(id).name}, the most common colour of this part in your sets` };
+  }
+  // Colour choices for the review list: Brickognize's guesses, then the part's other colours in your sets.
+  function colourOptions(cat, entry, colors) {
+    const opts = [], seen = new Set();
+    for (const c of colors) {
+      const id = cat ? cat.lookup.get(normColor(c.name)) : undefined;
+      const name = id != null && cat.byId.get(id) ? cat.byId.get(id).name : c.name;
+      const key = normColor(name); if (seen.has(key)) continue; seen.add(key);
+      opts.push({ name, id: id ?? c.id, score: c.score, inSet: !!(entry && entry.colors.has(id)) });
+    }
+    if (entry) for (const id of entry.colors.keys()) {
+      const c = cat.byId.get(id); if (!c || seen.has(normColor(c.name))) continue; seen.add(normColor(c.name));
+      opts.push({ name: c.name, id, score: null, inSet: true });
+    }
+    return opts;
+  }
+
+  return { detectParts, parseCSV, toCSV, normColor, loosePart, buildColorLookup, compareSet,
+           buildCatalogue, findEntry, chooseItem, chooseColour, colourOptions,
+           nameSimilarity, compareFigs, matchFig, figChoices, rowType, FIG_LINK_AT, FIG_SURE_AT,
+           letterbox, letterboxPixels, resizeBilinear, toTensor, decodeYolo, nms, iou, onnxImgsz, sortReading,
+           onnxNames, tileRects, cropRGBA, mergeTiled,
+           rarity, tallyCandidates, scoreCandidate };
+})();
+if (typeof module !== "undefined") module.exports = Core;
+</script>
+
+<!-- ======================= app ======================= -->
+<script>
+"use strict";
+(() => {
+const $ = s => document.querySelector(s);
+// When the page is opened through the local helper (serve.py), calls go through
+// it, because browsers block some of these sites from calling them directly.
+let BRICKOGNIZE = "https://api.brickognize.com";
+const ENDPOINT = { parts: "/predict/parts/?predict_color=true&top_k_items=5&top_k_colors=4",
+                   figs: "/predict/figs/?top_k_items=5",
+                   mixed: "/predict/?predict_color=true&top_k_items=5&top_k_colors=4" };
+const WHAT = { parts: ["part", "parts"], figs: ["minifigure", "minifigures"], mixed: ["item", "items"] };
+const RB_DIRECT = "https://rebrickable.com/api/v3/lego";
+let RB = RB_DIRECT, viaHelper = false;
+const helperReady = (async () => {
+  if (!/^https?:$/.test(location.protocol)) return false;
+  try {
+    const r = await fetch("/proxy/ping", { cache: "no-store" });
+    if (r.ok && (await r.json()).ok) { BRICKOGNIZE = "/proxy/brickognize"; RB = "/proxy/rebrickable"; viaHelper = true; }
+  } catch {}
+  return viaHelper;
+})();
+// BrickLink prices need your BrickLink keys in the helper (bricklink_keys.json, see the README).
+let blOn = false, blDefaultCur = "", blReason = "";
+const blReady = (async () => {
+  if (!(await helperReady)) return false;
+  try {
+    const j = await (await fetch("/proxy/bricklink/status", { cache: "no-store" })).json();
+    blOn = !!j.configured; blDefaultCur = j.currency || ""; blReason = j.reason || "";
+  } catch {}
+  return blOn;
+})();
+const HELPER_TIP = "Open the app through the local helper instead: run python serve.py in the brick-sorter folder (see the README).";
+const FIELDS = ["type", "part_id", "part_name", "color_name", "color_id", "quantity", "bricklink_id", "rb_part", "rb_fig", "img_url"];
+
+// Common colours so swatches show before Rebrickable colours are loaded.
+const SWATCH = { black: "05131D", white: "FFFFFF", red: "C91A09", blue: "0055BF", yellow: "F2CD37", green: "237841", brightgreen: "4B9F4A",
+  lightbluishgray: "A0A5A9", darkbluishgray: "6C6E68", tan: "E4CD9E", darktan: "958A73", reddishbrown: "582A12", orange: "FE8A18",
+  darkred: "720E0F", darkblue: "0A3463", mediumazure: "36AEBF", lime: "BBE90B", darkgreen: "184632", sandgreen: "A0BCAC",
+  lightgray: "9BA19D", darkgray: "6D6E5C", brown: "583927", pearlgold: "AA7F2E", flatsilver: "898788", darkorange: "A95500",
+  brightpink: "E4ADC8", darkpink: "C870A0", magenta: "923978", mediumblue: "5A93DB", medianlavender: "AC78BA", olivegreen: "9B9A5A",
+  transclear: "FCFCFC", transred: "C91A09", transblue: "0020A0", translightblue: "AEEFEC", transyellow: "F5CD2F", transgreen: "84B68D",
+  transneongreen: "F8F184", transorange: "F08F1C", nougat: "D09168", mediumnougat: "AA7D55", lightnougat: "F6D7B3", sandblue: "6074A1",
+  darkturquoise: "008F9B", coral: "FF698F", yellowishgreen: "DFEEA5", lavender: "E1D5ED", darkpurple: "3F3691", brightlightorange: "F8BB3D",
+  brightlightyellow: "FFF03A", brightlightblue: "9FC3E9", mediumlavender: "AC78BA", darkazure: "078BC9" };
+
+// ---------- storage (this browser only) ----------
+const store = {
+  get(k, d) { try { const v = localStorage.getItem("brick-sorter:" + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem("brick-sorter:" + k, JSON.stringify(v)); return true; } catch { return false; } },
+};
+let inventory = store.get("inventory", []);
+let rbColors = store.get("rbColors", null);
+const theme = store.get("theme", "");
+if (theme) document.documentElement.dataset.theme = theme;
+
+function swatchHex(name) {
+  const n = Core.normColor(name);
+  if (rbColors) { const c = rbColors.find(c => Core.normColor(c.name) === n); if (c) return c.rgb; }
+  return SWATCH[n] || null;
+}
+function swatch(name) {
+  const hex = swatchHex(name);
+  return hex ? `<span class="swatch" style="background:#${hex}"></span>` : "";
+}
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+let toastTimer;
+function toast(msg) { const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => (t.hidden = true), 2600); }
+
+function download(name, text, type = "text/csv") {
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  const a = Object.assign(document.createElement("a"), { href: url, download: name });
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+// ---------- tabs ----------
+function show(view) {
+  for (const b of document.querySelectorAll("header nav button")) b.setAttribute("aria-selected", String(b.dataset.view === view));
+  for (const s of document.querySelectorAll(".view")) s.hidden = s.id !== "view-" + view;
+  if (view === "inv") renderInventory();
+  if (view === "set") { $("#key-needed").hidden = !!store.get("rbKey", ""); renderExpected(); }
+  window.scrollTo({ top: 0 });
+}
+for (const b of document.querySelectorAll("header nav button")) b.addEventListener("click", () => show(b.dataset.view));
+
+// ---------- settings ----------
+const dlg = $("#settings");
+function openSettings() {
+  $("#rb-key").value = store.get("rbKey", ""); $("#theme").value = store.get("theme", "");
+  $("#bl-cond").value = store.get("blCond", "U"); $("#bl-guide").value = store.get("blGuide", "sold");
+  $("#bl-cur").value = store.get("blCur", ""); $("#bl-cur").placeholder = blDefaultCur || "AUD";
+  $("#bl-state").textContent = blOn ? "Prices are on. They come from BrickLink's price guide and are remembered for a day."
+    : viaHelper ? `Prices are off: add your BrickLink keys to bricklink_keys.json next to serve.py, then restart it (see the README).${blReason ? " " + blReason : ""}`
+    : "Prices need the local helper (python serve.py) and your BrickLink keys. See the README.";
+  dlg.showModal();
+}
+$("#open-settings").addEventListener("click", openSettings);
+$("#key-needed-btn").addEventListener("click", openSettings);
+dlg.addEventListener("close", () => {
+  if (dlg.returnValue !== "save") return;
+  store.set("rbKey", $("#rb-key").value.trim());
+  const th = $("#theme").value; store.set("theme", th);
+  store.set("blCond", $("#bl-cond").value); store.set("blGuide", $("#bl-guide").value);
+  store.set("blCur", $("#bl-cur").value.trim().toUpperCase().replace(/[^A-Z]/g, "").slice(0, 3));
+  renderReview(); if (!$("#view-inv").hidden) renderInventory();
+  if (th) document.documentElement.dataset.theme = th; else delete document.documentElement.dataset.theme;
+  $("#key-needed").hidden = !!store.get("rbKey", "");
+  $("#expect-key").hidden = true;
+  toast("Settings saved");
+});
+
+// =================== SCAN ===================
+let photos = [];        // {id, name, img, w, h, scale, rgba, boxes, off:Set, canvas}
+let review = [];        // identified parts awaiting confirmation
+let photoSeq = 0;
+
+const drop = $("#drop");
+$("#file").addEventListener("change", e => { addPhotos([...e.target.files]); e.target.value = ""; });
+drop.addEventListener("dragover", e => { e.preventDefault(); drop.classList.add("over"); });
+drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+drop.addEventListener("drop", e => { e.preventDefault(); drop.classList.remove("over"); addPhotos([...e.dataTransfer.files].filter(f => f.type.startsWith("image/"))); });
+
+function loadImage(file) {
+  return new Promise((res, rej) => {
+    const url = URL.createObjectURL(file), img = new Image();
+    img.onload = () => res(img);
+    img.onerror = () => rej(new Error(`${file.name} couldn't be opened. HEIC photos may need converting to JPEG.`));
+    img.src = url;
+  });
+}
+
+async function addPhotos(files) {
+  if (!files.length) return;
+  $("#detect-panel").hidden = false;
+  $("#detect-summary").textContent = "Finding parts…";
+  renderFinder();
+  for (const file of files) {
+    try {
+      const img = await loadImage(file);
+      const w = img.naturalWidth, h = img.naturalHeight, scale = Math.min(1, 1000 / Math.max(w, h));
+      const cw = Math.round(w * scale), ch = Math.round(h * scale);
+      const c = document.createElement("canvas"); c.width = cw; c.height = ch;
+      const ctx = c.getContext("2d", { willReadFrequently: true }); ctx.drawImage(img, 0, 0, cw, ch);
+      const rgba = ctx.getImageData(0, 0, cw, ch).data;
+      const p = { id: ++photoSeq, name: file.name, img, w, h, cw, ch, scale, rgba, boxes: [], off: new Set(), cands: null };
+      photos.push(p);
+      renderPhoto(p);
+    } catch (err) { toast(err.message); }
+  }
+  await detectAll();
+}
+
+// ---------- part finder: background method, brick detector or figure finder ----------
+const ORT_VERSION = "1.22.0";
+const ORT_BASE = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VERSION}/dist/`;
+let finder = store.get("finder", "builtin");
+// Two models can be loaded: your trained brick detector, and the figure finder
+// (a general "person" detector that also finds minifigures, run on tiles).
+const MODELS = {
+  trained: { key: "detector", file: "lego-detector.onnx", title: "brick detector", tiles: 1, iou: 0.7, conf: 0.3,
+             empty: "Load the lego-detector.onnx file from your training folder. This browser remembers it, so you only do this once per device.",
+             help: "Lower if parts are missed. Raise if it boxes things that aren't parts." },
+  figures: { key: "figfinder", file: "figure-finder.onnx", title: "figure finder", tiles: 3, iou: 0.5, conf: 0.1, cls: "person",
+             empty: "Load the figure-finder.onnx file. If it's next to this page on your website, or you opened the page with serve.py, it loads by itself. This browser remembers it.",
+             help: "Lower if figures are missed. Raise if it boxes lights, reflections or empty shelf." },
+};
+for (const [id, m] of Object.entries(MODELS)) Object.assign(m, { id, bytes: null, name: "", size: 0, imgsz: 960, names: {}, classIdx: null, session: null, ep: "", loading: null });
+const cur = () => MODELS[finder] || null;
+const confOf = m => store.get("conf-" + m.id, m.conf);
+
+// Model files are kept in IndexedDB (too big for localStorage). If this browser
+// doesn't allow it, a model works until the page is closed.
+function idb() {
+  return new Promise((res, rej) => {
+    try {
+      const req = indexedDB.open("brick-sorter", 1);
+      req.onupgradeneeded = () => req.result.createObjectStore("files");
+      req.onsuccess = () => res(req.result); req.onerror = () => rej(req.error);
+    } catch (e) { rej(e); }
+  });
+}
+async function idbDo(mode, fn) {
+  const db = await idb();
+  return new Promise((res, rej) => {
+    const tx = db.transaction("files", mode), st = tx.objectStore("files"), req = fn(st);
+    tx.oncomplete = () => res(req && req.result); tx.onerror = () => rej(tx.error); tx.onabort = () => rej(tx.error);
+  });
+}
+const idbGet = k => idbDo("readonly", st => st.get(k));
+const idbPut = (k, v) => idbDo("readwrite", st => st.put(v, k));
+const idbDel = k => idbDo("readwrite", st => st.delete(k));
+
+function loadScript(src) {
+  return new Promise((res, rej) => {
+    const s = document.createElement("script"); s.src = src; s.onload = res;
+    s.onerror = () => rej(new Error("Couldn't download the detector runtime. Check your internet connection."));
+    document.head.appendChild(s);
+  });
+}
+async function makeSession(m, ep) {
+  ort.env.wasm.wasmPaths = ORT_BASE;
+  if (!self.crossOriginIsolated) ort.env.wasm.numThreads = 1;
+  m.session = await ort.InferenceSession.create(m.bytes, { executionProviders: [ep], graphOptimizationLevel: "all" });
+  m.ep = ep;
+  return m.session;
+}
+// Start a model: on the graphics card (WebGPU) when the browser offers it, otherwise the CPU.
+async function ensureSession(m) {
+  if (m.session) return m.session;
+  if (!m.bytes) throw new Error(`Load the ${m.title} file first.`);
+  if (!m.loading) m.loading = (async () => {
+    if (!self.ort) await loadScript(ORT_BASE + "ort.webgpu.min.js");
+    if (navigator.gpu && store.get("useGpu", true) && store.get(gpuKey(m), null) !== false) {
+      try { return await makeSession(m, "webgpu"); } catch (e) { console.warn("WebGPU unavailable, using CPU", e); }
+    }
+    return makeSession(m, "wasm");
+  })().finally(() => { m.loading = null; renderFinder(); });
+  return m.loading;
+}
+// Some graphics cards give wrong results with some models. The first time a
+// model runs on the graphics card, compare it with the CPU on the same input;
+// if they disagree, use the CPU from then on (remembered per model file).
+const gpuKey = m => `gpuCheck-${m.id}-${m.size}`;
+function checkGpu(m, input) {
+  const known = store.get(gpuKey(m), null);
+  if (known !== null) return Promise.resolve(known);
+  if (!m.checking) m.checking = compareGpuCpu(m, input).finally(() => { m.checking = null; });
+  return m.checking;
+}
+async function compareGpuCpu(m, input) {
+  const name = m.session.inputNames[0];
+  const g = await m.session.run({ [name]: input });
+  const cpu = await ort.InferenceSession.create(m.bytes, { executionProviders: ["wasm"], graphOptimizationLevel: "all" });
+  const c = await cpu.run({ [cpu.inputNames[0]]: input });
+  try { cpu.release && cpu.release(); } catch {}
+  const a = (g[m.session.outputNames[0]] || Object.values(g)[0]).data, b = (c[cpu.outputNames[0]] || Object.values(c)[0]).data;
+  const anchors = b.length / ((c[cpu.outputNames[0]] || Object.values(c)[0]).dims[1]);
+  let bad = 0;
+  for (let i = 0; i < b.length; i++) {
+    const tol = i < 4 * anchors ? 2 : 0.03;      // box coordinates in pixels, then scores
+    if (!(Math.abs(a[i] - b[i]) <= tol)) bad++;
+  }
+  const ok = a.length === b.length && bad / b.length < 0.01;
+  store.set(gpuKey(m), ok);
+  if (!ok) console.warn(`WebGPU results differ from CPU (${bad} of ${b.length} values); using the CPU`);
+  return ok;
+}
+// The runtime can't run one model twice at once, so runs take turns.
+function withLock(m, fn) {
+  const next = (m.lock || Promise.resolve()).then(fn, fn);
+  m.lock = next.catch(() => {});
+  return next;
+}
+async function runSession(m, input) {
+  try { return await m.session.run({ [m.session.inputNames[0]]: input }); }
+  catch (e) {
+    if (m.ep !== "webgpu") throw e;
+    console.warn("WebGPU run failed, switching to CPU", e);
+    m.session = null; await makeSession(m, "wasm"); renderFinder();
+    return m.session.run({ [m.session.inputNames[0]]: input });
+  }
+}
+// Run a model on one photo (and its tiles). Keeps every candidate above 0.05,
+// so the confidence slider needs no rerun.
+async function runDetector(p, m) {
+  await ensureSession(m);
+  // Full-resolution pixels (capped at 4096 px to stay within phone canvas limits),
+  // then the same resize the model saw in training.
+  const k = Math.min(1, 4096 / Math.max(p.w, p.h)), fw = Math.round(p.w * k), fh = Math.round(p.h * k);
+  const c = document.createElement("canvas"); c.width = fw; c.height = fh;
+  const ctx = c.getContext("2d", { willReadFrequently: true });
+  ctx.drawImage(p.img, 0, 0, fw, fh);
+  const full = ctx.getImageData(0, 0, fw, fh).data;
+  c.width = c.height = 0;                          // free the big canvas
+  const rects = [[0, 0, fw, fh]].concat(m.tiles > 1 ? Core.tileRects(fw, fh, m.tiles) : []);
+  const regions = [];
+  for (const rect of rects) {
+    const [x0, y0, x1, y1] = rect, rw = x1 - x0, rh = y1 - y0;
+    const src = rect === rects[0] ? full : Core.cropRGBA(full, fw, x0, y0, x1, y1);
+    const size = m.imgsz, lb = Core.letterbox(rw, rh, size);
+    const input = new ort.Tensor("float32", Core.toTensor(Core.letterboxPixels(src, rw, rh, lb), size), [1, 3, size, size]);
+    const out = await withLock(m, async () => {
+      if (m.ep === "webgpu" && !(await checkGpu(m, input))) {
+        m.session = null; await makeSession(m, "wasm"); renderFinder();
+        toast("Your graphics card gave wrong results with this model, so it now runs on the CPU.");
+      }
+      return runSession(m, input);
+    });
+    const o = out[m.session.outputNames[0]] || Object.values(out)[0];
+    regions.push({ rect, cands: Core.decodeYolo(o.data, o.dims, lb, rw, rh, 0.05, m.classIdx) });
+  }
+  p.det = { model: m.id, k, fw, fh, regions };
+}
+function boxesFromDet(p, m) {
+  const d = p.det, conf = confOf(m);
+  const raw = m.tiles > 1 ? Core.mergeTiled(d.regions, d.fw, d.fh, conf, m.iou) : Core.nms(d.regions[0].cands, conf, m.iou);
+  const boxes = raw.map(([x0, y0, x1, y1]) => {
+    x0 /= d.k; y0 /= d.k; x1 /= d.k; y1 /= d.k;
+    const pad = 0.08 * Math.max(x1 - x0, y1 - y0) + 4;
+    return { x0: Math.max(0, (x0 - pad) * p.scale), y0: Math.max(0, (y0 - pad) * p.scale),
+             x1: Math.min(p.cw, (x1 + pad) * p.scale), y1: Math.min(p.ch, (y1 + pad) * p.scale) };
+  });
+  return Core.sortReading(boxes, p.ch);
+}
+async function detect(p) {
+  const m = cur();
+  if (m && m.bytes) {
+    if (!p.det || p.det.model !== m.id) await runDetector(p, m);
+    p.boxes = boxesFromDet(p, m);
+  } else {
+    p.boxes = Core.detectParts(p.rgba, p.cw, p.ch, { sensitivity: +$("#sens").value, minSize: +$("#minsize").value / 10000 });
+  }
+  p.off = new Set();
+}
+let detectRun = 0, detectBusy = Promise.resolve();
+async function detectAll() {
+  const run = ++detectRun;
+  const prev = detectBusy;
+  let done; detectBusy = new Promise(r => (done = r));
+  try { await prev; if (run === detectRun) await detectPass(run); } finally { done(); }
+}
+async function detectPass(run) {
+  const err = $("#det-error"); err.hidden = true;
+  for (let i = 0; i < photos.length; i++) {
+    if (run !== detectRun) return;
+    const p = photos[i], m = cur();
+    if (m && m.bytes && (!p.det || p.det.model !== m.id))
+      $("#detect-summary").textContent = `Finding ${m.id === "figures" ? "figures" : "parts"} in photo ${i + 1} of ${photos.length}…`;
+    try { await detect(p); }
+    catch (e) {
+      err.textContent = `The ${m ? m.title : "detector"} couldn't run: ${e.message}. Using the background method instead.`; err.hidden = false;
+      finder = "builtin"; renderFinder(); return detectPass(run);
+    }
+    renderPhoto(p);
+    await new Promise(r => setTimeout(r));
+  }
+  if (run === detectRun) updateDetectSummary();
+}
+function renderFinder() {
+  for (const b of document.querySelectorAll("#finder-nav button")) b.setAttribute("aria-selected", String(b.dataset.finder === finder));
+  const m = cur();
+  $("#trained-box").hidden = !m;
+  $("#builtin-box").hidden = !!m;
+  if (!m) return;
+  $("#det-loaded").hidden = !m.bytes;
+  $("#det-empty").hidden = !!m.bytes;
+  $("#det-conf-wrap").hidden = !m.bytes;
+  $("#det-gpu-wrap").hidden = !m.bytes || !navigator.gpu;
+  $("#det-gpu").checked = store.get("useGpu", true);
+  $("#det-empty-text").textContent = m.empty;
+  $("#det-load-label").textContent = `Load ${m.title} (.onnx)`;
+  $("#det-remove").textContent = `Remove ${m.title}`;
+  $("#det-conf-help").textContent = m.help;
+  $("#det-conf").value = confOf(m); $("#det-conf-out").textContent = (+confOf(m)).toFixed(2);
+  if (m.bytes) {
+    $("#det-name").textContent = m.name;
+    $("#det-info").textContent = `${(m.size / 1e6).toFixed(0)} MB · ${m.imgsz} px` + (m.tiles > 1 ? ` · ${m.tiles}×${m.tiles} tiles` : "") +
+      (m.loading ? " · starting…" : m.ep === "webgpu" ? " · runs on your graphics card" : m.ep === "wasm" ? (store.get(gpuKey(m), null) === false ? " · runs on the CPU (your graphics card gave wrong results)" : " · runs on the CPU, a few seconds per photo") : "");
+  }
+}
+function setModel(m, bytes, name) {
+  const imgsz = Core.onnxImgsz(bytes), names = Core.onnxNames(bytes);
+  Object.assign(m, { bytes, name, size: bytes.length, imgsz: imgsz ? imgsz[0] : 960, names, session: null, ep: "" });
+  m.classIdx = null;
+  if (m.cls) {
+    const idx = Object.keys(names).find(k => names[k] === m.cls);
+    if (idx == null) throw new Error(`this model doesn't know "${m.cls}"`);
+    m.classIdx = +idx;
+  }
+  for (const p of photos) if (p.det && p.det.model === m.id) p.det = null;
+}
+$("#finder-nav").addEventListener("click", e => {
+  const b = e.target.closest("[data-finder]"); if (!b) return;
+  finder = b.dataset.finder; store.set("finder", finder); renderFinder();
+  if (finder === "figures" && scanMode !== "figs") { scanMode = "figs"; store.set("scanMode", scanMode); renderMode(); }   // figures are identified as minifigures
+  const m = cur();
+  if (m && !m.bytes && m.id === "figures") autoLoadFigures().then(() => { renderFinder(); detectAll(); });
+  else detectAll();
+});
+async function useModelBytes(m, bytes, name, quiet) {
+  setModel(m, bytes, name);
+  renderFinder();
+  await ensureSession(m);                          // fails here if it isn't a usable model
+  try { await idbPut(m.key, { name, bytes }); if (!quiet) toast(`${m.title[0].toUpperCase() + m.title.slice(1)} loaded and saved in this browser`); }
+  catch { if (!quiet) toast(`Loaded. This browser can't keep it, so load it again next time.`); }
+}
+// When the page is served from a website or serve.py, a figure-finder.onnx next to it loads by itself.
+async function autoLoadFigures() {
+  const m = MODELS.figures;
+  if (m.bytes || !/^https?:$/.test(location.protocol)) return;
+  try {
+    const r = await fetch(m.file, { cache: "no-store" });
+    if (!r.ok) return;
+    await useModelBytes(m, new Uint8Array(await r.arrayBuffer()), m.file, true);
+    toast("Figure finder loaded");
+  } catch (e) { console.warn("figure finder not loaded", e); m.bytes = null; }
+}
+$("#det-file").addEventListener("change", async e => {
+  const file = e.target.files[0]; e.target.value = ""; const m = cur(); if (!file || !m) return;
+  const err = $("#det-error"); err.hidden = true;
+  try {
+    await useModelBytes(m, new Uint8Array(await file.arrayBuffer()), file.name, false);
+    renderFinder(); detectAll();
+  } catch (ex) {
+    m.bytes = null; m.session = null; renderFinder();
+    err.textContent = `That file couldn't be used as the ${m.title} (${ex.message}). Choose ${m.file}.`; err.hidden = false;
+  }
+});
+$("#det-remove").addEventListener("click", async () => {
+  const m = cur(); if (!m) return;
+  Object.assign(m, { bytes: null, session: null, ep: "", name: "" });
+  try { await idbDel(m.key); } catch {}
+  finder = "builtin"; store.set("finder", finder); renderFinder(); detectAll();
+  toast(`${m.title[0].toUpperCase() + m.title.slice(1)} removed from this browser`);
+});
+$("#det-gpu").addEventListener("change", () => {
+  store.set("useGpu", $("#det-gpu").checked);
+  for (const m of Object.values(MODELS)) store.set(gpuKey(m), null);     // re-check the graphics card next time
+  for (const m of Object.values(MODELS)) { m.session = null; m.ep = ""; }
+  for (const p of photos) p.det = null;
+  renderFinder(); detectAll();
+});
+$("#det-conf").addEventListener("input", () => {
+  const m = cur(); if (!m) return;
+  store.set("conf-" + m.id, +$("#det-conf").value);
+  $("#det-conf-out").textContent = (+$("#det-conf").value).toFixed(2);
+  if (!m.bytes) return;
+  for (const p of photos) if (p.det && p.det.model === m.id) { p.boxes = boxesFromDet(p, m); p.off = new Set(); renderPhoto(p); }
+  updateDetectSummary();
+});
+(async () => {                                     // bring back models saved earlier
+  for (const m of Object.values(MODELS)) {
+    try { const saved = await idbGet(m.key); if (saved && saved.bytes) setModel(m, saved.bytes, saved.name); } catch {}
+  }
+  if (finder === "figures" && !MODELS.figures.bytes) await autoLoadFigures();
+  if (cur() && !cur().bytes) finder = "builtin";
+  renderFinder();
+})();
+
+
+function renderPhoto(p) {
+  let wrap = document.getElementById("photo-" + p.id);
+  if (!wrap) {
+    wrap = document.createElement("div"); wrap.className = "photo"; wrap.id = "photo-" + p.id;
+    wrap.innerHTML = `<canvas></canvas><div class="row"><span class="mono"></span><span class="muted"></span><button class="btn spacer" type="button">Remove photo</button></div>`;
+    $("#photos").appendChild(wrap);
+    const cv = wrap.querySelector("canvas");
+    cv.width = p.cw; cv.height = p.ch;
+    cv.addEventListener("click", e => {
+      const r = cv.getBoundingClientRect(), x = (e.clientX - r.left) * p.cw / r.width, y = (e.clientY - r.top) * p.ch / r.height;
+      const i = p.boxes.findIndex(b => x >= b.x0 && x <= b.x1 && y >= b.y0 && y <= b.y1);
+      if (i < 0) return;
+      p.off.has(i) ? p.off.delete(i) : p.off.add(i);
+      renderPhoto(p); updateDetectSummary();
+    });
+    wrap.querySelector("button").addEventListener("click", () => { photos = photos.filter(q => q !== p); wrap.remove(); updateDetectSummary(); });
+  }
+  const cv = wrap.querySelector("canvas"), ctx = cv.getContext("2d");
+  ctx.drawImage(p.img, 0, 0, p.cw, p.ch);
+  const css = getComputedStyle(document.documentElement);
+  const mark = css.getPropertyValue("--mark").trim() || "#f2b705";
+  const lw = Math.max(2, p.cw / 300), fs = Math.max(14, p.cw / 45);
+  ctx.font = `800 ${fs}px "Bricolage Grotesque", system-ui, sans-serif`; ctx.textBaseline = "top";
+  p.boxes.forEach((b, i) => {
+    const off = p.off.has(i);
+    ctx.lineWidth = lw; ctx.setLineDash(off ? [lw * 3, lw * 2] : []);
+    ctx.strokeStyle = off ? "rgba(140,140,140,.9)" : mark;
+    ctx.strokeRect(b.x0, b.y0, b.x1 - b.x0, b.y1 - b.y0);
+    const label = String(i + 1), tw = ctx.measureText(label).width + 8;
+    ctx.fillStyle = off ? "rgba(140,140,140,.9)" : mark; ctx.fillRect(b.x0, b.y0, tw, fs + 6);
+    ctx.fillStyle = "#111"; ctx.fillText(label, b.x0 + 4, b.y0 + 3);
+  });
+  ctx.setLineDash([]);
+  const on = p.boxes.length - p.off.size;
+  wrap.querySelector(".mono").textContent = p.name;
+  wrap.querySelector(".muted").textContent = `${on} part${on === 1 ? "" : "s"}` + (p.off.size ? ` (${p.off.size} left out)` : "");
+}
+
+function selectedCount() { return photos.reduce((s, p) => s + p.boxes.length - p.off.size, 0); }
+let scanMode = store.get("scanMode", "parts");
+const MODE_HINT = {
+  parts: "Each item is matched against LEGO parts and gets a colour.",
+  figs: "Each item is matched against minifigures. Photograph them assembled, lying face up and spread out.",
+  mixed: "Brickognize decides whether each item is a part or a minifigure. Use this when a photo has both.",
+};
+function renderMode() {
+  for (const b of document.querySelectorAll("#mode-nav button")) b.setAttribute("aria-selected", String(b.dataset.mode === scanMode));
+  $("#mode-hint").textContent = MODE_HINT[scanMode];
+  updateDetectSummary();
+}
+$("#mode-nav").addEventListener("click", e => {
+  const b = e.target.closest("[data-mode]"); if (!b) return;
+  scanMode = b.dataset.mode; store.set("scanMode", scanMode); renderMode();
+});
+
+function updateDetectSummary() {
+  const n = selectedCount(), [one, many] = WHAT[scanMode];
+  $("#detect-panel").hidden = photos.length === 0;
+  $("#detect-summary").textContent = `${n} item${n === 1 ? "" : "s"} in ${photos.length} photo${photos.length === 1 ? "" : "s"}`;
+  $("#identify").textContent = n ? `Identify ${n} ${n === 1 ? one : many}` : `Identify ${many}`;
+  $("#identify").disabled = n === 0;
+}
+
+let rerunTimer;
+function rerun() {
+  $("#sens-out").textContent = (+$("#sens").value).toFixed(1);
+  $("#minsize-out").textContent = $("#minsize").value;
+  clearTimeout(rerunTimer);
+  rerunTimer = setTimeout(() => { if (finder === "builtin") detectAll(); }, 250);
+}
+$("#sens").addEventListener("input", rerun);
+$("#minsize").addEventListener("input", rerun);
+$("#clear-photos").addEventListener("click", () => { photos = []; $("#photos").innerHTML = ""; updateDetectSummary(); });
+
+function cropBlob(p, b) {
+  const sx = b.x0 / p.scale, sy = b.y0 / p.scale, sw = (b.x1 - b.x0) / p.scale, sh = (b.y1 - b.y0) / p.scale;
+  const k = Math.min(1, 640 / Math.max(sw, sh));
+  const c = document.createElement("canvas"); c.width = Math.max(1, Math.round(sw * k)); c.height = Math.max(1, Math.round(sh * k));
+  c.getContext("2d").drawImage(p.img, sx, sy, sw, sh, 0, 0, c.width, c.height);
+  return new Promise(res => c.toBlob(bl => res({ blob: bl, url: c.toDataURL("image/jpeg", 0.8) }), "image/jpeg", 0.92));
+}
+
+class NetError extends Error {}
+async function identifyOne(blob, mode) {
+  const fd = new FormData(); fd.append("query_image", blob, "item.jpg");
+  await helperReady;
+  const url = BRICKOGNIZE + ENDPOINT[mode];
+  for (let attempt = 0; attempt < 3; attempt++) {
+    let r;
+    try { r = await fetch(url, { method: "POST", body: fd }); }
+    catch { throw new NetError("network"); }
+    if (r.status === 502 && viaHelper) throw new NetError("helper");
+    if (r.status === 429 || r.status >= 500) { await new Promise(s => setTimeout(s, 1500 * (attempt + 1))); continue; }
+    if (!r.ok) throw new Error(`Brickognize returned ${r.status}`);
+    return r.json();
+  }
+  throw new Error("Brickognize is busy. Try again in a minute.");
+}
+
+// ---------- links for checking a match ----------
+// BrickLink colour numbers for common colours, used until Rebrickable's colour list is loaded.
+const BL_COLOURS = { white: 1, tan: 2, yellow: 3, orange: 4, red: 5, green: 6, blue: 7, brown: 8, lightgray: 9, darkgray: 10, black: 11,
+  transclear: 12, transblack: 13, transdarkblue: 14, translightblue: 15, transneongreen: 16, transred: 17, transneonorange: 18, transyellow: 19,
+  transgreen: 20, brightgreen: 36, darkturquoise: 39, mediumblue: 42, darkpink: 47, sandgreen: 48, sandblue: 55, darkred: 59, darkblue: 63,
+  darkorange: 68, darktan: 69, magenta: 71, darkgreen: 80, darkbluishgray: 85, lightbluishgray: 86, reddishbrown: 88, darkpurple: 89,
+  lightnougat: 90, brightpink: 104, brightlightblue: 105, brightlightorange: 110, brightlightyellow: 103, pearlgold: 115, darkbrown: 120,
+  mediumnougat: 150, darkazure: 153, lavender: 154, olivegreen: 155, mediumazure: 156, mediumlavender: 157, yellowishgreen: 158,
+  lime: 34, nougat: 28, flatsilver: 95, coral: 220, chromegold: 21 };
+function blColour(name) {
+  if (!name) return null;
+  const n = Core.normColor(name);
+  if (rbColors) {
+    const blOf = c => (c.external_ids && c.external_ids.BrickLink) || {};
+    const c = rbColors.find(c => Core.normColor(c.name) === n)
+      || rbColors.find(c => (blOf(c).ext_descrs || []).some(a => a.some(x => Core.normColor(x) === n)));
+    if (c && (blOf(c).ext_ids || []).length) return blOf(c).ext_ids[0];
+  }
+  return BL_COLOURS[n] ?? null;
+}
+const BL_LETTER = { part: "P", fig: "M", set: "S" };
+function blUrl(kind, no, blc, name) {
+  const t = BL_LETTER[kind] || "P";
+  if (t === "M" && /^fig-/i.test(no || "")) return `https://www.bricklink.com/v2/search.page?q=${encodeURIComponent(name || "")}#T=M`;  // a Rebrickable-only figure
+  return `https://www.bricklink.com/v2/catalog/catalogitem.page?${t}=${encodeURIComponent(no)}${t === "P" && blc != null ? `#T=C&C=${blc}` : ""}`;
+}
+// A part's own Rebrickable page when its Rebrickable number is known, otherwise a search (Brickognize uses BrickLink numbers).
+function rbUrl(kind, num, name, known) {
+  if (kind === "part" && known) return `https://rebrickable.com/parts/${encodeURIComponent(num)}/`;
+  if (kind === "fig") return /^fig-/i.test(num || "") ? `https://rebrickable.com/minifigs/${encodeURIComponent(num)}/`
+    : `https://rebrickable.com/search/?show_printed=on&search_type=minifig&q=${encodeURIComponent(name || num)}`;
+  if (kind === "set") return `https://rebrickable.com/sets/${encodeURIComponent(num)}/`;
+  return `https://rebrickable.com/search/?show_printed=on&search_type=part&q=${encodeURIComponent(num)}`;
+}
+const ext = (url, label, title) => `<a href="${esc(url)}" target="_blank" rel="noopener" title="${esc(title)}">${label} ↗</a>`;
+
+// ---------- BrickLink prices (through the helper) ----------
+const blSettings = () => ({ cond: store.get("blCond", "U"), guide: store.get("blGuide", "sold"), cur: store.get("blCur", "") || blDefaultCur });
+async function blGet(what, params) {
+  await blReady;
+  const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v != null && v !== ""));
+  let r;
+  try { r = await fetch(`/proxy/bricklink/${what}?${q}`); } catch { throw new Error("The local helper stopped responding. Check that its window is still open."); }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || `BrickLink returned ${r.status}`);
+  return j;
+}
+const PRICE_DAYS = 1;
+let blPrices = store.get("blPrices", {});           // key -> {t, p} ; p = price summary or {error}
+const priceKey = (kind, no, blc) => { const b = blSettings(); return `${kind}|${no}|${kind === "part" ? blc ?? "" : ""}|${b.cond}|${b.guide}|${b.cur}`; };
+const priceQueue = [], priceWaiting = new Map();
+let priceBusy = 0;
+function cachedPrice(key) { const h = blPrices[key]; return h && Date.now() - h.t < PRICE_DAYS * 864e5 ? h.p : undefined; }
+function priceEach(p) { return p && !p.error ? (p.qty_avg ?? p.avg) : null; }
+function money(v, cur) {
+  if (v == null) return "";
+  try { return new Intl.NumberFormat(undefined, { style: "currency", currency: cur || "USD", maximumFractionDigits: v < 1 ? 3 : 2 }).format(v); }
+  catch { return `${v.toFixed(2)} ${cur || ""}`.trim(); }
+}
+function priceText(p) {
+  if (p === undefined) return { cls: "price none", text: "Price…", title: "Getting the BrickLink price" };
+  if (!p || p.error) return { cls: "price none", text: "No price", title: (p && p.error) || "BrickLink has no price for this" };
+  const each = priceEach(p), b = blSettings();
+  if (each == null) return { cls: "price none", text: b.guide === "sold" ? "No sales" : "None for sale", title: "BrickLink has no price data for this in this condition" };
+  const what = b.guide === "sold" ? `${p.sold_times ?? "?"} sales in the last 6 months` : `${p.quantity ?? "?"} for sale now`;
+  return { cls: "price", text: `${money(each, p.currency)} ${b.cond === "N" ? "new" : "used"}`,
+    title: `BrickLink average, ${b.cond === "N" ? "new" : "used"}: ${money(each, p.currency)} (from ${money(p.min, p.currency)} to ${money(p.max, p.currency)}), ${what}` };
+}
+// A price chip; the price is fetched in the background and filled in when it arrives.
+function priceChip(kind, no, blc) {
+  if (!blOn || !no || /^fig-/i.test(no) || (kind === "part" && blc == null)) return "";
+  const key = priceKey(kind, no, blc), p = cachedPrice(key), t = priceText(p);
+  if (p === undefined) queuePrice(key, kind, no, blc);
+  return `<span class="${t.cls}" data-pk="${esc(key)}" title="${esc(t.title)}">${esc(t.text)}</span>`;
+}
+function queuePrice(key, kind, no, blc) {
+  if (priceWaiting.has(key)) return priceWaiting.get(key);
+  const pr = new Promise(res => priceQueue.push({ key, kind, no, blc, res }));
+  priceWaiting.set(key, pr);
+  pumpPrices();
+  return pr;
+}
+function pumpPrices() {
+  while (priceBusy < 2 && priceQueue.length) {
+    const j = priceQueue.shift(); priceBusy++;
+    const b = blSettings();
+    blGet("price", { kind: j.kind, no: j.no, color_id: j.kind === "part" ? j.blc : "", condition: b.cond, guide: b.guide, currency: b.cur })
+      .then(p => p, e => ({ error: e.message }))
+      .then(p => {
+        blPrices[j.key] = { t: Date.now(), p };
+        if (!store.set("blPrices", blPrices)) { blPrices = { [j.key]: blPrices[j.key] }; store.set("blPrices", blPrices); }
+        const t = priceText(p);
+        for (const el of document.querySelectorAll(`[data-pk="${CSS.escape(j.key)}"]`)) { el.className = t.cls; el.textContent = t.text; el.title = t.title; }
+        priceWaiting.delete(j.key); priceBusy--; j.res(p);
+        if (!$("#view-inv").hidden) invValueSoon();
+        pumpPrices();
+      });
+  }
+}
+let invValueTimer;
+function invValueSoon() { clearTimeout(invValueTimer); invValueTimer = setTimeout(renderInvStats, 300); }
+
+function blFromItem(it) {
+  for (const s of it.external_sites || []) if ((s.name || "").toLowerCase() === "bricklink") {
+    const m = /[?&][PMS]=([^&]+)/.exec(s.url || ""); if (m) return decodeURIComponent(m[1]);
+  }
+  return it.id;
+}
+
+$("#identify").addEventListener("click", async () => {
+  const jobs = [], mode = scanMode;
+  for (const p of photos) p.boxes.forEach((b, i) => { if (!p.off.has(i)) jobs.push({ p, b, i }); });
+  if (!jobs.length) return;
+  const btn = $("#identify"), bar = $("#identify-progress"), err = $("#identify-error");
+  btn.disabled = true; bar.hidden = false; err.hidden = true;
+  let done = 0, failed = 0, netFail = false;
+  const results = new Array(jobs.length);
+  const setProgress = () => { bar.firstElementChild.style.width = (100 * done / jobs.length) + "%"; $("#identify-status").textContent = `${done} of ${jobs.length}`; };
+  setProgress();
+  let cursor = 0;
+  async function worker() {
+    while (cursor < jobs.length && !netFail) {
+      const k = cursor++, j = jobs[k];
+      const { blob, url } = await cropBlob(j.p, j.b);
+      try { results[k] = { crop: url, photo: j.p.name, n: j.i + 1, mode, res: await identifyOne(blob, mode) }; }
+      catch (e) { if (e instanceof NetError) netFail = true; failed++; results[k] = { crop: url, photo: j.p.name, n: j.i + 1, mode, error: e.message }; }
+      done++; setProgress();
+    }
+  }
+  await Promise.all([worker(), worker(), worker()]);
+  btn.disabled = false;
+  if (netFail) {
+    err.hidden = false;
+    err.textContent = viaHelper
+      ? "The local helper couldn't reach Brickognize. Check your internet connection, and that the helper window is still open."
+      : `This browser couldn't reach Brickognize. Check your internet connection. If it keeps happening, the browser is blocking the request. ${HELPER_TIP}`;
+  }
+  const fresh = results.filter(Boolean).filter(r => !r.error || !netFail).map(toReview);
+  review = review.concat(fresh);
+  $("#identify-status").textContent = netFail ? "" : `Done${failed ? `, ${failed} failed` : ""}`;
+  renderReview();
+  if (fresh.length) $("#review-panel").scrollIntoView({ behavior: "smooth", block: "start" });
+});
+
+let reviewSeq = 0, coloursTried = false;
+const looksLikeFigPart = it => /minifig/i.test(it.category || "") || /^(minifig(ure)?\b|torso\b|legs\b|hips\b|head\b)/i.test(it.name || "");
+const kindOf = (it, mode) => it.type || (mode === "figs" ? "fig" : "part");
+function toReview(r) {
+  const items = (r.res && r.res.items) || [], colors = (r.res && r.res.colors) || [];
+  const rv = { id: ++reviewSeq, crop: r.crop, photo: r.photo, n: r.n, mode: r.mode, error: r.error || (items.length ? "" : "No match found"),
+    items, colors, item: 0, kinds: items.map(it => kindOf(it, r.mode)), colorOpts: [], colorSel: -1, figOpts: [], figSel: -1,
+    notes: [], entries: [], figMatch: null, qty: 1, skip: !items.length, touched: false, figPart: false, rbFig: "" };
+  applyChoice(rv, false);
+  const top = items[rv.item];
+  rv.figPart = !!top && rv.kinds[rv.item] === "part" && looksLikeFigPart(top);
+  return rv;
+}
+
+// Work out the part (and colour) or minifigure for one detected item, using the expected sets when there are any.
+function applyChoice(r, keepItem) {
+  const cat = catalogue();
+  const matches = r.items.map((it, i) => !cat ? null
+    : r.kinds[i] === "part" ? Core.findEntry(cat, [it.id, blFromItem(it)])
+    : r.kinds[i] === "fig" ? Core.matchFig(cat, [it.id, blFromItem(it)], it.name) : null);
+  r.entries = matches.map((m, i) => r.kinds[i] === "fig" ? (m && m.fig) || null : m);
+  if (!keepItem) r.item = cat ? Core.chooseItem(r.items, r.entries) : 0;
+  r.notes = [];
+  if (!r.items.length) return;
+  const it = r.items[r.item], kind = r.kinds[r.item], entry = r.entries[r.item];
+  if (cat && !keepItem && r.item > 0 && entry)
+    r.notes.push(`Picked guess #${r.item + 1} because it's in your sets (#1 was ${r.items[0].id} ${r.items[0].name})`);
+
+  if (kind === "fig") {
+    r.colorOpts = []; r.colorSel = -1;
+    r.figMatch = matches[r.item];
+    r.figOpts = cat ? Core.figChoices(cat, it.name) : [];
+    r.figSel = entry ? r.figOpts.indexOf(entry) : -1;
+    if (cat) r.notes.push(entry ? `Linked to ${entry.name} (${entry.fig_num}) in your sets, ${r.figMatch.how}` : "No figure in your expected sets has a similar name");
+    return;
+  }
+  r.figOpts = []; r.figSel = -1; r.figMatch = null;
+  if (kind !== "part") {
+    r.colorOpts = []; r.colorSel = -1;
+    if (!keepItem) r.skip = true;
+    r.notes.push(`Looks like a whole ${kind === "set" ? "set" : kind}, not a part or minifigure, so it's skipped`);
+    return;
+  }
+  if (cat && !entry) r.notes.push("Not in your expected sets");
+  r.colorOpts = Core.colourOptions(cat, entry, r.colors);
+  if (cat && entry) {
+    const c = Core.chooseColour(cat, entry, r.colors);
+    r.colorSel = r.colorOpts.findIndex(o => o.id === c.id);
+    if (c.note) r.notes.push(c.note);
+  } else r.colorSel = r.colorOpts.length ? 0 : -1;
+}
+
+function renderReview() {
+  const box = $("#review");
+  const cat = catalogue();
+  $("#review-panel").hidden = review.length === 0;
+  const keep = review.filter(r => !r.skip);
+  $("#review-summary").textContent = `${keep.length} of ${review.length} will be added`;
+  $("#add-all").disabled = keep.length === 0;
+  box.innerHTML = review.map(r => {
+    const it = r.items[r.item], score = it ? it.score : 0, entry = r.entries[r.item], kind = r.kinds[r.item];
+    const pct = Math.round(score * 100);
+    let chip;
+    if (r.error) chip = `<span class="chip bad">${esc(r.error)}</span>`;
+    else if (kind !== "part" && kind !== "fig") chip = `<span class="chip warn">Whole ${esc(kind)} · ${pct}%</span>`;
+    else if (cat && kind === "fig") chip = r.figSel < 0 ? `<span class="chip warn">Not in your sets · ${pct}%</span>`
+      : (r.figMatch && r.figMatch.sim < Core.FIG_SURE_AT && !r.touched) ? `<span class="chip warn">Check link · ${pct}%</span>`
+      : `<span class="chip star">In your sets · ${pct}%</span>`;
+    else if (cat) chip = entry ? (score < 0.4 ? `<span class="chip warn">Check · ${pct}%</span>` : `<span class="chip star">In your sets · ${pct}%</span>`)
+      : `<span class="chip warn">Not in your sets · ${pct}%</span>`;
+    else chip = score < 0.7 ? `<span class="chip warn">Check · ${pct}%</span>` : `<span class="chip ok">${pct}%</span>`;
+    const itemOpts = r.items.map((x, i) => `<option value="${i}" ${i === r.item ? "selected" : ""}>${r.kinds[i] === "fig" && r.mode === "mixed" ? "Minifig · " : ""}${esc(x.id)} · ${esc(x.name)} (${Math.round(x.score * 100)}%)${r.entries[i] ? " · in your sets" : ""}</option>`).join("");
+    let second = "";
+    if (it && kind === "part") {
+      const colOpts = [`<option value="-1" ${r.colorSel === -1 ? "selected" : ""}>Colour unknown</option>`]
+        .concat(r.colorOpts.map((c, i) => `<option value="${i}" ${i === r.colorSel ? "selected" : ""}>${esc(c.name)}${c.score != null ? ` (${Math.round(c.score * 100)}%)` : ""}${c.inSet ? " · in your sets" : ""}</option>`)).join("");
+      const col = r.colorOpts[r.colorSel];
+      second = `<div class="row" style="flex-wrap:nowrap;gap:6px">${col ? swatch(col.name) : ""}<select data-k="color" aria-label="Colour">${colOpts}</select></div>`;
+    } else if (it && kind === "fig" && r.figOpts.length) {
+      const figOpts = [`<option value="-1" ${r.figSel === -1 ? "selected" : ""}>Not one of my sets' figures</option>`]
+        .concat(r.figOpts.map((f, i) => `<option value="${i}" ${i === r.figSel ? "selected" : ""}>${esc(f.name)} · ${esc(f.fig_num)}</option>`)).join("");
+      second = `<select data-k="fig" aria-label="Which figure in your sets">${figOpts}</select>`;
+    } else if (it && kind === "fig") second = `<span class="muted" style="font-size:13px">Add your sets above to link this figure to one of them.</span>`;
+    let links = "";
+    if (it) {
+      const no = blFromItem(it), col = kind === "part" ? r.colorOpts[r.colorSel] : null, blc = col ? blColour(col.name) : null;
+      const f = kind === "fig" ? r.figOpts[r.figSel] : null;
+      const rbNum = kind === "fig" ? (f ? f.fig_num : r.rbFig) : kind === "part" ? (entry ? entry.part_num : (rbCache.resolve || {})[it.id] || it.id) : it.id;
+      links = `<div class="links">
+        ${ext(blUrl(kind, no, blc, it.name), "BrickLink", `Open ${no} on BrickLink${blc != null ? " in this colour" : ""}`)}
+        ${ext(rbUrl(kind, rbNum, it.name, kind === "part" && (!!entry || !!(rbCache.resolve || {})[it.id])), "Rebrickable", `Open ${rbNum || it.name} on Rebrickable`)}
+        ${priceChip(kind, no, blc)}
+        ${kind === "part" ? `<label class="figpick"><input type="checkbox" data-k="figpart" ${r.figPart ? "checked" : ""}> Minifigure part</label>` : ""}
+      </div>`;
+    }
+    return `<div class="item ${r.skip ? "skip" : ""}" data-id="${r.id}">
+      <div class="pair">
+        <figure><img src="${r.crop}" alt="Item ${r.n} from ${esc(r.photo)}"><figcaption>Yours</figcaption></figure>
+        ${it && it.img_url ? `<figure><img class="ref" src="${esc(it.img_url)}" alt="Reference picture of ${esc(it.name)}" loading="lazy"><figcaption>Match</figcaption></figure>` : ""}
+      </div>
+      <div class="fields">
+        ${r.items.length ? `<select data-k="item" aria-label="Match">${itemOpts}</select>` : `<span class="muted">Nothing recognised in photo ${esc(r.photo)}, box ${r.n}</span>`}
+        ${second}
+        ${links}
+      </div>
+      <div class="side">
+        <div class="row" style="gap:4px;justify-content:flex-end">${kind === "fig" ? `<span class="chip fig">Minifigure</span>` : ""}${chip}</div>
+        <div class="row" style="gap:6px">
+          <input type="number" min="1" value="${r.qty}" data-k="qty" aria-label="Quantity" ${r.items.length ? "" : "disabled"}>
+          <button class="btn" type="button" data-k="skip" ${r.items.length ? "" : "disabled"}>${r.skip ? "Include" : "Skip"}</button>
+        </div>
+      </div>
+      ${r.notes.length ? `<div class="note">${r.notes.map(esc).join(". ")}.</div>` : ""}
+    </div>`;
+  }).join("");
+  renderFigbar();
+  if (review.length && !rbColors && !coloursTried && store.get("rbKey", "")) { coloursTried = true; ensureColours().then(renderReview, () => {}); }
+}
+$("#review").addEventListener("change", e => {
+  const el = e.target, row = el.closest(".item"); if (!row) return;
+  const r = review.find(x => x.id === +row.dataset.id);
+  if (el.dataset.k === "item") { r.item = +el.value; r.touched = true; applyChoice(r, true); }
+  if (el.dataset.k === "color") { r.colorSel = +el.value; r.touched = true; }
+  if (el.dataset.k === "fig") { r.figSel = +el.value; r.touched = true; }
+  if (el.dataset.k === "qty") r.qty = Math.max(1, parseInt(el.value, 10) || 1);
+  if (el.dataset.k === "figpart") r.figPart = el.checked;
+  if (el.dataset.k === "item") r.figPart = r.kinds[r.item] === "part" && (r.figPart || looksLikeFigPart(r.items[r.item]));
+  renderReview();
+});
+$("#review").addEventListener("click", e => {
+  const el = e.target.closest("[data-k=skip]"); if (!el) return;
+  const r = review.find(x => x.id === +el.closest(".item").dataset.id); r.skip = !r.skip; renderReview();
+});
+$("#discard-review").addEventListener("click", () => { review = []; figCands = []; renderReview(); });
+$("#add-all").addEventListener("click", () => {
+  let parts = 0, figs = 0;
+  for (const r of review) {
+    if (r.skip || !r.items.length) continue;
+    const it = r.items[r.item], kind = r.kinds[r.item];
+    if (kind === "fig") {
+      const f = r.figOpts[r.figSel];
+      addToInventory({ type: "fig", part_id: it.id, part_name: it.name, img_url: it.img_url, bricklink_id: blFromItem(it),
+        rb_fig: f ? f.fig_num : r.rbFig || "", quantity: r.qty });
+      figs += r.qty;
+    } else if (kind === "part") {
+      const c = r.colorOpts[r.colorSel], entry = r.entries[r.item];
+      addToInventory({ type: "part", part_id: it.id, part_name: it.name, img_url: it.img_url, bricklink_id: blFromItem(it),
+        rb_part: entry ? entry.part_num : "", color_name: c ? c.name : "", color_id: c ? c.id : "", quantity: r.qty });
+      parts += r.qty;
+    }
+  }
+  saveInventory();
+  review = []; figCands = []; renderReview();
+  const bits = [];
+  if (parts) bits.push(`${parts} piece${parts === 1 ? "" : "s"}`);
+  if (figs) bits.push(`${figs} minifigure${figs === 1 ? "" : "s"}`);
+  toast(bits.length ? `Added ${bits.join(" and ")} to inventory` : "Nothing added");
+});
+
+// =================== INVENTORY ===================
+const invKey = r => `${Core.rowType(r)}|${String(r.part_id).toLowerCase()}|${Core.normColor(r.color_name)}|${String(r.rb_fig || "").toLowerCase()}`;
+function addToInventory(row) {
+  const q = Math.max(0, parseInt(row.quantity, 10) || 0); if (!row.part_id || !q) return;
+  const k = invKey(row), ex = inventory.find(r => invKey(r) === k);
+  if (ex) { ex.quantity += q; for (const f of FIELDS) if (!ex[f] && row[f]) ex[f] = row[f]; }
+  else inventory.push({ type: Core.rowType(row), part_id: String(row.part_id), part_name: row.part_name || "", color_name: row.color_name || "", color_id: row.color_id ?? "",
+    quantity: q, bricklink_id: row.bricklink_id || "", rb_part: row.rb_part || "", rb_fig: row.rb_fig || "", img_url: row.img_url || "" });
+}
+function saveInventory() {
+  inventory.sort((a, b) => (Core.rowType(a) === "fig" ? 0 : 1) - (Core.rowType(b) === "fig" ? 0 : 1) || (a.part_name || "").localeCompare(b.part_name || "") || (a.color_name || "").localeCompare(b.color_name || ""));
+  if (!store.set("inventory", inventory)) toast("Couldn't save in this browser. Export a CSV to keep your inventory.");
+  $("#inv-count").textContent = inventory.reduce((s, r) => s + r.quantity, 0);
+  if (!$("#view-inv").hidden) renderInventory();
+}
+const invPriceArgs = r => { const kind = Core.rowType(r), no = r.bricklink_id || r.part_id; return /^fig-/i.test(no) ? { kind, no, blc: null, name: r.part_name, noPrice: true } : { kind, no, blc: kind === "part" ? blColour(r.color_name) : null }; };
+function renderInvStats() {
+  const partRows = inventory.filter(r => Core.rowType(r) === "part"), figRows = inventory.filter(r => Core.rowType(r) === "fig");
+  const pcs = partRows.reduce((s, r) => s + r.quantity, 0), nFigs = figRows.reduce((s, r) => s + r.quantity, 0);
+  const parts = new Set(partRows.map(r => String(r.part_id).toLowerCase())).size;
+  let value = "";
+  if (blOn && inventory.length) {
+    let total = 0, priced = 0, cur = "";
+    for (const r of inventory) {
+      const a = invPriceArgs(r), p = a.noPrice || (a.kind === "part" && a.blc == null) ? null : cachedPrice(priceKey(a.kind, a.no, a.blc)), each = priceEach(p);
+      if (each != null) { total += each * r.quantity; priced++; cur = p.currency || cur; }
+    }
+    const b = blSettings();
+    value = `<div class="stat"><b>${priced ? money(total, cur) : "–"}</b><span>${b.cond === "N" ? "new" : "used"} value · ${priced} of ${inventory.length} rows priced</span></div>`;
+  }
+  $("#inv-stats").innerHTML = `<div class="stat"><b>${pcs}</b><span>pieces</span></div><div class="stat"><b>${parts}</b><span>different parts</span></div><div class="stat"><b>${nFigs}</b><span>minifigures</span></div>${value}`;
+}
+function renderInventory() {
+  renderInvStats();
+  $("#inv-prices").hidden = !blOn || !inventory.length;
+  const f = $("#inv-filter").value.trim().toLowerCase();
+  const rows = inventory.map((r, i) => ({ r, i })).filter(({ r }) => !f || `${r.part_id} ${r.part_name} ${r.color_name} ${Core.rowType(r) === "fig" ? "minifigure" : ""}`.toLowerCase().includes(f));
+  if (!inventory.length) {
+    $("#inv-table").innerHTML = `<div class="panel empty"><strong>No parts yet</strong><span>Scan a photo of your parts, or import a CSV you exported earlier.</span><button class="btn primary" type="button" id="go-scan">Scan parts</button></div>`;
+    $("#go-scan").addEventListener("click", () => show("scan"));
+    return;
+  }
+  $("#inv-table").innerHTML = `<div class="table-wrap"><table>
+    <thead><tr><th></th><th>ID</th><th>Name</th><th>Colour</th><th class="num">Qty</th>${blOn ? `<th>Each</th>` : ""}<th></th></tr></thead>
+    <tbody>${rows.map(({ r, i }) => { const a = invPriceArgs(r); return `<tr data-i="${i}">
+      <td>${r.img_url ? `<img src="${esc(r.img_url)}" alt="" loading="lazy">` : ""}</td>
+      <td class="mono"><a href="${esc(blUrl(a.kind, a.no, a.blc, r.part_name))}" target="_blank" rel="noopener" title="Open on BrickLink">${esc(r.part_id)}</a></td>
+      <td>${esc(r.part_name)}${r.rb_fig ? `<div class="muted mono" style="font-size:12px">${esc(r.rb_fig)}</div>` : ""}</td>
+      <td>${Core.rowType(r) === "fig" ? `<span class="chip fig">Minifigure</span>` : `<span class="row" style="gap:6px;flex-wrap:nowrap">${swatch(r.color_name)}${esc(r.color_name || "Unknown")}</span>`}</td>
+      <td class="num"><span class="qty"><button type="button" data-d="-1" aria-label="One fewer">−</button><span>${r.quantity}</span><button type="button" data-d="1" aria-label="One more">+</button></span></td>
+      ${blOn ? `<td>${invPriceCell(a)}</td>` : ""}
+      <td><button class="del" type="button" data-del title="Remove" aria-label="Remove ${esc(r.part_name)}">×</button></td>
+    </tr>`; }).join("")}</tbody></table></div>`;
+}
+// Inventory shows prices it already has; "Get BrickLink prices" fetches the rest.
+function invPriceCell(a) {
+  if (a.noPrice) return `<span class="price none" title="Not a BrickLink number">–</span>`;
+  if (a.kind === "part" && a.blc == null) return `<span class="price none" title="Set the colour to get a price">–</span>`;
+  const key = priceKey(a.kind, a.no, a.blc), p = cachedPrice(key);
+  if (p === undefined) return `<span class="price none" data-pk="${esc(key)}" title="Not fetched yet">–</span>`;
+  const t = priceText(p);
+  return `<span class="${t.cls}" data-pk="${esc(key)}" title="${esc(t.title)}">${esc(t.text)}</span>`;
+}
+$("#inv-prices").addEventListener("click", async () => {
+  const btn = $("#inv-prices"), todo = [];
+  for (const r of inventory) {
+    const a = invPriceArgs(r); if (a.noPrice || (a.kind === "part" && a.blc == null)) continue;
+    const key = priceKey(a.kind, a.no, a.blc);
+    if (cachedPrice(key) === undefined && !todo.some(t => t.key === key)) todo.push({ key, ...a });
+  }
+  if (!todo.length) { toast("All prices are up to date"); return; }
+  btn.disabled = true;
+  let done = 0;
+  const failures = [];
+  await Promise.all(todo.map(t => queuePrice(t.key, t.kind, t.no, t.blc).then(p => {
+    done++; btn.textContent = `Getting prices ${done} of ${todo.length}…`;
+    if (p && p.error) failures.push(p.error);
+  })));
+  btn.disabled = false; btn.textContent = "Get BrickLink prices";
+  renderInventory();
+  toast(failures.length ? `${failures.length} price${failures.length === 1 ? "" : "s"} failed: ${failures[0]}` : `Got ${todo.length} price${todo.length === 1 ? "" : "s"}`);
+});
+$("#inv-table").addEventListener("click", e => {
+  const tr = e.target.closest("tr[data-i]"); if (!tr) return;
+  const r = inventory[+tr.dataset.i];
+  const d = e.target.closest("[data-d]");
+  if (d) { r.quantity += +d.dataset.d; if (r.quantity <= 0) inventory.splice(+tr.dataset.i, 1); saveInventory(); renderInventory(); }
+  if (e.target.closest("[data-del]")) { inventory.splice(+tr.dataset.i, 1); saveInventory(); renderInventory(); }
+});
+$("#inv-filter").addEventListener("input", renderInventory);
+$("#export-inv").addEventListener("click", () => {
+  if (!inventory.length) return toast("Inventory is empty");
+  download(`brick-inventory-${new Date().toISOString().slice(0, 10)}.csv`, Core.toCSV(inventory, FIELDS));
+});
+$("#import-inv").addEventListener("change", async e => {
+  const file = e.target.files[0]; e.target.value = ""; if (!file) return;
+  const rows = Core.parseCSV(await file.text());
+  let n = 0;
+  for (const r of rows) { if (!r.part_id) continue; addToInventory({ ...r, quantity: r.quantity || 1 }); n += parseInt(r.quantity, 10) || 1; }
+  saveInventory(); renderInventory();
+  toast(n ? `Imported ${n} item${n === 1 ? "" : "s"}` : "No rows with a part_id column found");
+});
+$("#clear-inv").addEventListener("click", () => ($("#clear-confirm").hidden = false));
+$("#clear-no").addEventListener("click", () => ($("#clear-confirm").hidden = true));
+$("#clear-yes").addEventListener("click", () => { inventory = []; saveInventory(); renderInventory(); $("#clear-confirm").hidden = true; toast("Inventory cleared"); });
+
+// =================== SET CHECK ===================
+let rbPaced = false, rbLast = 0;        // set while suggesting, to stay within Rebrickable's request limits
+async function rbGet(path, params = {}, opts = {}) {
+  await helperReady;
+  const key = store.get("rbKey", "");
+  let url = `${RB}${path}?` + new URLSearchParams({ ...params, key, page_size: 1000 });
+  const out = [];
+  while (url) {
+    let r;
+    if (rbPaced) { const wait = rbLast + 1000 - Date.now(); if (wait > 0) await new Promise(s => setTimeout(s, wait)); rbLast = Date.now(); }
+    try { r = await fetch(url); }
+    catch { throw new Error(viaHelper ? "The local helper stopped responding. Check that its window is still open." : `This browser couldn't reach Rebrickable; the browser blocks it when the app is opened as a file. ${HELPER_TIP}`); }
+    if (r.status === 502 && viaHelper) throw new Error("The local helper couldn't reach Rebrickable. Check your internet connection.");
+    if (r.status === 401) throw new Error("Rebrickable didn't accept the API key. Check it in Settings.");
+    if (r.status === 404 && opts.missingOk) return null;
+    if (r.status === 404) throw new Error("Rebrickable doesn't know that set number. Try adding the version, e.g. 10696-1.");
+    if (r.status === 429) { await new Promise(s => setTimeout(s, 3000)); continue; }
+    if (!r.ok) throw new Error(`Rebrickable returned ${r.status}.`);
+    const data = await r.json();
+    if (!Array.isArray(data.results)) return data;
+    out.push(...data.results);
+    url = data.next ? data.next.replace(RB_DIRECT, RB) + (data.next.includes("key=") ? "" : `&key=${encodeURIComponent(key)}`) : null;
+  }
+  return out;
+}
+
+async function ensureColours() {
+  if (!rbColors) {
+    rbColors = (await rbGet(`/colors/`)).map(c => ({ id: c.id, name: c.name, rgb: c.rgb, external_ids: { BrickLink: c.external_ids && c.external_ids.BrickLink } }));
+    store.set("rbColors", rbColors);
+  }
+}
+const normSet = raw => { raw = raw.trim(); return raw.includes("-") ? raw : raw + "-1"; };
+// Fetch a set: its parts (without minifigure parts), the minifigure parts on
+// their own, and its minifigures as whole figures. Spares are kept, flagged.
+function mergeParts(parts) {
+  const merged = new Map();
+  for (const p of parts) {
+    const k = `${p.part.part_num}|${p.color.id}|${p.is_spare ? 1 : 0}`;
+    if (merged.has(k)) { merged.get(k).quantity += p.quantity; continue; }
+    merged.set(k, { part_num: p.part.part_num, bl_ids: (p.part.external_ids && p.part.external_ids.BrickLink) || [], name: p.part.name,
+      color_id: p.color.id, color_name: p.color.name, rgb: p.color.rgb, quantity: p.quantity, img: p.part.part_img_url, spare: !!p.is_spare });
+  }
+  return merged;
+}
+async function fetchSet(num) {
+  const enc = encodeURIComponent(num);
+  const info = await rbGet(`/sets/${enc}/`);
+  const bricks = mergeParts(await rbGet(`/sets/${enc}/parts/`, { inc_part_details: 1, inc_minifig_parts: 0 }));
+  const all = mergeParts(await rbGet(`/sets/${enc}/parts/`, { inc_part_details: 1, inc_minifig_parts: 1 }));
+  const figParts = [];
+  for (const [k, l] of all) {
+    const extra = l.quantity - (bricks.get(k) ? bricks.get(k).quantity : 0);
+    if (extra > 0) figParts.push({ ...l, quantity: extra });
+  }
+  const figMap = new Map();
+  for (const f of await rbGet(`/sets/${enc}/minifigs/`)) {
+    if (figMap.has(f.set_num)) { figMap.get(f.set_num).quantity += f.quantity || 1; continue; }
+    figMap.set(f.set_num, { fig_num: f.set_num, name: f.set_name || f.name || f.set_num, quantity: f.quantity || 1, img: f.set_img_url });
+  }
+  return { info: { set_num: info.set_num, name: info.name, year: info.year, set_img_url: info.set_img_url, num_parts: info.num_parts },
+           lines: [...bricks.values()], figParts, figs: [...figMap.values()] };
+}
+function checkLines(lines) {          // spares left out, one line per part + colour
+  const m = new Map();
+  for (const l of lines) {
+    if (l.spare) continue;
+    const k = l.part_num + "|" + l.color_id;
+    if (m.has(k)) m.get(k).quantity += l.quantity; else m.set(k, { ...l });
+  }
+  return [...m.values()];
+}
+
+// ---------- expected sets ----------
+let expectedSets = store.get("expectedSets", []);
+let catCache = null;
+async function refreshOldSets() {     // sets saved before minifigure support
+  let changed = false;
+  for (let i = 0; i < expectedSets.length; i++) if (!expectedSets[i].figs) { expectedSets[i] = await fetchSet(expectedSets[i].info.set_num); changed = true; }
+  if (changed) expectedChanged();
+}
+function catalogue() {
+  if (!expectedSets.length || !rbColors) return null;
+  if (!catCache) catCache = Core.buildCatalogue(expectedSets, rbColors);
+  return catCache;
+}
+function expectedChanged() {
+  catCache = null;
+  if (!store.set("expectedSets", expectedSets)) toast("Couldn't save the set list in this browser.");
+  for (const r of review) if (!r.touched) applyChoice(r, false);
+  renderExpected(); renderReview();
+}
+function renderExpected() {
+  $("#expect-list").innerHTML = expectedSets.map((st, i) => `<div class="setchip">
+      ${st.info.set_img_url ? `<img src="${esc(st.info.set_img_url)}" alt="">` : "<span></span>"}
+      <div class="t"><b>${esc(st.info.name)}</b><span class="mono muted">${esc(st.info.set_num)} · ${checkLines(st.lines).reduce((s, l) => s + l.quantity, 0)} pieces${st.figs && st.figs.length ? ((n => ` · ${n} minifigure${n === 1 ? "" : "s"}`)(st.figs.reduce((s, f) => s + f.quantity, 0))) : ""}</span></div>
+      <button class="del" type="button" data-rm="${i}" aria-label="Remove ${esc(st.info.name)}" title="Remove">×</button>
+    </div>`).join("");
+  const n = expectedSets.length;
+  $("#expect-check").hidden = n === 0;
+  $("#expect-check-title").textContent = n ? `Your ${n} expected set${n === 1 ? "" : "s"}: ${expectedSets.map(s => s.info.set_num).join(", ")}` : "";
+}
+$("#expect-key-btn").addEventListener("click", openSettings);
+$("#expect-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const raw = $("#expect-num").value.trim(); if (!raw) return;
+  if (!store.get("rbKey", "")) { $("#expect-key").hidden = false; return; }
+  const num = normSet(raw), err = $("#expect-error"), btn = $("#expect-add");
+  if (expectedSets.some(st => st.info.set_num === num)) { toast(`${num} is already in the list`); return; }
+  btn.disabled = true; btn.textContent = "Adding…"; err.hidden = true;
+  try {
+    await ensureColours();
+    expectedSets.push(await fetchSet(num));
+    $("#expect-num").value = "";
+    expectedChanged();
+  } catch (ex) { err.textContent = ex.message; err.hidden = false; }
+  finally { btn.disabled = false; btn.textContent = "Add set"; }
+});
+$("#expect-list").addEventListener("click", e => {
+  const b = e.target.closest("[data-rm]"); if (!b) return;
+  expectedSets.splice(+b.dataset.rm, 1); expectedChanged();
+});
+
+// ---------- checking sets ----------
+let lastSet = null, setFilter = "missing";
+let figsWhole = store.get("figsWhole", true);
+$("#figs-whole").checked = figsWhole;
+$("#figs-whole").addEventListener("change", () => {
+  figsWhole = $("#figs-whole").checked; store.set("figsWhole", figsWhole);
+  if (lastSet) runCheck(lastSet.sets);
+});
+function runCheck(sets) {
+  const lookup = Core.buildColorLookup(rbColors);
+  let remaining = inventory;
+  const results = [];
+  for (const st of sets) {
+    const lines = checkLines(figsWhole ? st.lines : st.lines.concat(st.figParts || []));
+    const r = Core.compareSet(lines, remaining, lookup);
+    remaining = r.extras;
+    let figs = [];
+    if (figsWhole && st.figs && st.figs.length) {
+      const f = Core.compareFigs(st.figs.map(x => ({ ...x, set_num: st.info.set_num })), remaining);
+      figs = f.lines; remaining = f.extras;
+    }
+    results.push({ info: st.info, lines: r.lines, figs });
+  }
+  lastSet = { sets, results, extras: remaining };
+  renderSet();
+}
+$("#set-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const raw = $("#set-num").value.trim(); if (!raw) return;
+  if (!store.get("rbKey", "")) { $("#key-needed").hidden = false; return; }
+  const go = $("#set-go"), err = $("#set-error");
+  go.disabled = true; go.textContent = "Checking…"; err.hidden = true;
+  try {
+    await ensureColours();
+    runCheck([await fetchSet(normSet(raw))]);
+  } catch (ex) { err.textContent = ex.message; err.hidden = false; }
+  finally { go.disabled = false; go.textContent = "Check set"; }
+});
+$("#check-expected").addEventListener("click", async () => {
+  $("#set-error").hidden = true;
+  try { await ensureColours(); await refreshOldSets(); runCheck(expectedSets); }
+  catch (ex) { $("#set-error").textContent = ex.message; $("#set-error").hidden = false; }
+});
+
+function figBlock(figs) {
+  if (!figs.length) return "";
+  const shown = setFilter === "missing" ? figs.filter(f => f.missing > 0 || /check/.test(f.match)) : figs;
+  const have = figs.reduce((s, f) => s + f.have, 0), need = figs.reduce((s, f) => s + f.quantity, 0);
+  return `<div class="figs"><h3>Minifigures · ${have} of ${need}</h3>${shown.length ? shown.map(f => `<div class="figrow ${f.have === 0 ? "missing" : ""}">
+      ${f.img ? `<img src="${esc(f.img)}" alt="" loading="lazy">` : "<span></span>"}
+      <div style="min-width:0"><b>${esc(f.name)}</b><div class="mono muted" style="font-size:12px"><a href="https://rebrickable.com/minifigs/${encodeURIComponent(f.fig_num)}/" target="_blank" rel="noopener">${esc(f.fig_num)}</a>${f.match && f.match !== "linked" ? ` <span class="chip warn">${esc(f.match)}</span>` : ""}</div></div>
+      <div class="num" style="text-align:right;font-variant-numeric:tabular-nums"><b>${f.have}</b> / ${f.quantity}${f.missing ? `<div class="muted" style="font-size:12px">${f.missing} missing</div>` : ""}</div>
+    </div>`).join("") : `<div class="figrow"><span></span><span class="muted">You have all of them.</span><span></span></div>`}</div>`;
+}
+function setBlock({ info, lines, figs }, multi) {
+  const need = lines.reduce((s, l) => s + l.quantity, 0), have = lines.reduce((s, l) => s + l.have, 0);
+  const pct = need ? Math.round(100 * have / need) : 0;
+  const missingLines = lines.filter(l => l.missing > 0);
+  const shown = (setFilter === "missing" ? missingLines : lines).slice().sort((a, b) => (b.missing - a.missing) || a.name.localeCompare(b.name));
+  const table = shown.length ? `<div class="table-wrap"><table>
+      <thead><tr><th></th><th>Part</th><th>Name</th><th>Colour</th><th class="num">Need</th><th class="num">Have</th><th class="num">Missing</th></tr></thead>
+      <tbody>${shown.map(l => `<tr class="${l.have === 0 ? "missing" : l.missing ? "partial" : ""}">
+        <td>${l.img ? `<img src="${esc(l.img)}" alt="" loading="lazy">` : ""}</td>
+        <td class="mono"><a href="https://www.bricklink.com/v2/catalog/catalogitem.page?P=${encodeURIComponent(l.bl_ids[0] || l.part_num)}" target="_blank" rel="noopener">${esc(l.part_num)}</a></td>
+        <td>${esc(l.name)}${l.match && l.match !== "exact" ? ` <span class="chip warn">${esc(l.match)}</span>` : ""}</td>
+        <td><span class="row" style="gap:6px;flex-wrap:nowrap"><span class="swatch" style="background:#${esc(l.rgb)}"></span>${esc(l.color_name)}</span></td>
+        <td class="num">${l.quantity}</td><td class="num">${l.have}</td><td class="num"><b>${l.missing || ""}</b></td>
+      </tr>`).join("")}</tbody></table></div>`
+    : `<div class="empty"><strong>Nothing missing</strong><span>You have every piece for this set.</span></div>`;
+  return `<div class="panel">
+    <div class="setcard">
+      ${info.set_img_url ? `<img src="${esc(info.set_img_url)}" alt="">` : "<span></span>"}
+      <div style="display:grid;gap:8px;min-width:0">
+        <div><span class="label mono">${esc(info.set_num)} · ${esc(info.year)}</span><h2>${esc(info.name)}</h2></div>
+        <div class="progress ${pct === 100 ? "good" : ""}"><i style="width:${pct}%"></i></div>
+        <div class="stats">
+          <div class="stat"><b>${pct}%</b><span>complete</span></div>
+          <div class="stat"><b>${have}<span class="muted" style="font-size:16px"> / ${need}</span></b><span>pieces you have</span></div>
+          <div class="stat"><b>${need - have}</b><span>missing, ${missingLines.length} different parts</span></div>
+          ${figs.length ? `<div class="stat"><b>${figs.reduce((s, f) => s + f.have, 0)}<span class="muted" style="font-size:16px"> / ${figs.reduce((s, f) => s + f.quantity, 0)}</span></b><span>minifigures</span></div>` : ""}
+        </div>
+      </div>
+    </div>
+    ${figBlock(figs)}
+    ${multi ? `<details class="setblock"><summary>${setFilter === "missing" ? `Show ${missingLines.length} missing parts` : `Show all ${lines.length} parts`}</summary>${table}</details>` : table}
+  </div>`;
+}
+function renderSet() {
+  if (!lastSet) return;
+  const { results, extras } = lastSet, multi = results.length > 1;
+  const anyMissing = results.some(r => r.lines.some(l => l.missing > 0) || r.figs.some(f => f.missing > 0));
+  const left = extras.reduce((s, e) => s + (parseInt(e.quantity, 10) || 0), 0);
+  $("#set-result").innerHTML = `
+    <div style="display:grid;gap:14px">
+      <div class="row">
+        <nav aria-label="Show"><button type="button" data-f="missing" aria-selected="${setFilter === "missing"}">Missing</button><button type="button" data-f="all" aria-selected="${setFilter === "all"}">All parts</button></nav>
+        <button class="btn spacer" type="button" id="export-missing" ${anyMissing ? "" : "disabled"}>Export missing list</button>
+      </div>
+      ${multi ? `<p class="muted" style="margin:0">Pieces were shared out in the order the sets are listed, so none is counted twice.</p>` : ""}
+      ${results.map(r => setBlock(r, multi)).join("")}
+      ${left ? `<p class="muted" style="margin:0">${left} of your items aren't used by ${multi ? "any of these sets" : "this set"}${extras.some(e => e.otherColour) ? `, some of them because the colour differs. If a colour guess was wrong, fix it in the inventory and check again.` : "."}</p>` : ""}
+    </div>`;
+}
+$("#set-result").addEventListener("click", e => {
+  const f = e.target.closest("[data-f]"); if (f) { setFilter = f.dataset.f; renderSet(); return; }
+  if (e.target.closest("#export-missing") && lastSet) {
+    const rows = lastSet.results.flatMap(r => r.figs.filter(f => f.missing > 0).map(f => ({ set_num: r.info.set_num, part_num: f.fig_num, bricklink_id: "", name: f.name, color: "minifigure", color_id: "", missing: f.missing }))
+      .concat(r.lines.filter(l => l.missing > 0).map(l => ({ set_num: r.info.set_num, part_num: l.part_num, bricklink_id: l.bl_ids[0] || l.part_num, name: l.name, color: l.color_name, color_id: l.color_id, missing: l.missing }))));
+    const name = lastSet.results.length === 1 ? lastSet.results[0].info.set_num : `${lastSet.results.length}-sets`;
+    download(`${name}-missing.csv`, Core.toCSV(rows, ["set_num", "part_num", "bricklink_id", "name", "color", "color_id", "missing"]));
+  }
+});
+
+// =================== SUGGEST SETS ===================
+const SUGGEST = { maxParts: 120, maxClues: 30, maxCommon: 2000, candidates: 8 };
+let rbCache = store.get("rbCache", null) || { resolve: {}, colors: {}, pcSets: {}, figSets: {} };
+function saveCache() { if (!store.set("rbCache", rbCache)) { rbCache.pcSets = {}; rbCache.figSets = {}; rbCache.setFigs = {}; rbCache.figParts = {}; store.set("rbCache", rbCache); } }
+let suggestions = [];
+
+// Rebrickable part number for a Brickognize ID (usually the same, sometimes a BrickLink-only number).
+async function resolvePart(row) {
+  if (row.rb_part) return row.rb_part;
+  const id = String(row.part_id), bl = String(row.bricklink_id || id);
+  if (id in rbCache.resolve) return rbCache.resolve[id] || null;
+  let num = null;
+  const direct = await rbGet(`/parts/${encodeURIComponent(id)}/`, {}, { missingOk: true });
+  if (direct && direct.part_num) num = direct.part_num;
+  else {
+    const hits = await rbGet(`/parts/`, { bricklink_id: bl }, { missingOk: true });
+    if (hits && hits.length) num = hits[0].part_num;
+  }
+  rbCache.resolve[id] = num || "";
+  return num;
+}
+async function partColours(num) {                // {colour id: number of sets}
+  if (!rbCache.colors[num]) {
+    const res = await rbGet(`/parts/${encodeURIComponent(num)}/colors/`, {}, { missingOk: true }) || [];
+    rbCache.colors[num] = Object.fromEntries(res.map(c => [c.color_id, c.num_sets]));
+  }
+  return rbCache.colors[num];
+}
+async function pcSets(num, cid) {
+  const k = `${num}|${cid}`;
+  if (!rbCache.pcSets[k]) rbCache.pcSets[k] = ((await rbGet(`/parts/${encodeURIComponent(num)}/colors/${cid}/sets/`, {}, { missingOk: true })) || []).map(s => s.set_num);
+  return rbCache.pcSets[k];
+}
+async function figSets(fig) {
+  if (!rbCache.figSets[fig]) rbCache.figSets[fig] = ((await rbGet(`/minifigs/${encodeURIComponent(fig)}/sets/`, {}, { missingOk: true })) || []).map(s => s.set_num);
+  return rbCache.figSets[fig];
+}
+
+async function suggestSets() {
+  const status = $("#suggest-status"), bar = $("#suggest-progress"), err = $("#suggest-error"), btn = $("#suggest-go");
+  const step = (text, frac) => { status.textContent = text; bar.firstElementChild.style.width = `${Math.round(frac * 100)}%`; };
+  err.hidden = true; $("#suggest-result").innerHTML = "";
+  if (!store.get("rbKey", "")) { $("#key-needed").hidden = false; return; }
+  const partRows = inventory.filter(r => Core.rowType(r) === "part" && r.part_id);
+  const figRows = inventory.filter(r => Core.rowType(r) === "fig" && r.rb_fig);
+  if (!partRows.length && !figRows.length) { status.textContent = "Your inventory is empty. Scan some parts first."; return; }
+  btn.disabled = true; bar.hidden = false; rbPaced = true;
+  try {
+    await ensureColours();
+    const lookup = Core.buildColorLookup(rbColors);
+    // 1. Rebrickable numbers and how rare each part is in each colour
+    const distinct = new Map();
+    for (const r of partRows) {
+      const k = String(r.part_id).toLowerCase();
+      if (!distinct.has(k)) distinct.set(k, { row: r, colours: new Set() });
+      const cid = r.color_name ? lookup.get(Core.normColor(r.color_name)) : undefined;
+      if (cid != null) distinct.get(k).colours.add(cid);
+    }
+    const todo = [...distinct.values()].filter(d => d.colours.size).slice(0, SUGGEST.maxParts);
+    const clues = [];
+    for (let i = 0; i < todo.length; i++) {
+      step(`Checking how rare your parts are (${i + 1} of ${todo.length})…`, 0.5 * i / todo.length);
+      const d = todo[i], num = await resolvePart(d.row);
+      if (!num) continue;
+      const counts = await partColours(num);
+      for (const cid of d.colours) {
+        const n = counts[cid];
+        if (!n) continue;                          // never appeared in that colour: likely a wrong colour guess
+        const c = rbColors.find(x => x.id === cid);
+        clues.push({ num, cid, n, weight: Core.rarity(n), label: `${d.row.part_name || num} in ${c ? c.name : cid}` });
+      }
+      if (i % 10 === 9) saveCache();
+    }
+    saveCache();
+    // 2. Sets containing the rarest clues, plus sets each linked minifigure is in
+    const rare = clues.filter(c => c.n <= SUGGEST.maxCommon).sort((a, b) => a.n - b.n).slice(0, SUGGEST.maxClues);
+    const evidence = [], weights = new Map();
+    for (const c of clues) weights.set(`${c.num.toLowerCase()}|${c.cid}`, { weight: c.weight, label: c.label });
+    for (let i = 0; i < rare.length; i++) {
+      step(`Finding sets with your rarest parts (${i + 1} of ${rare.length})…`, 0.5 + 0.25 * i / Math.max(1, rare.length));
+      evidence.push({ label: rare[i].label, weight: rare[i].weight, sets: await pcSets(rare[i].num, rare[i].cid) });
+    }
+    const figs = [...new Set(figRows.map(r => r.rb_fig))];
+    for (const fig of figs) {
+      const sets = await figSets(fig), w = Core.rarity(sets.length);
+      const name = (figRows.find(r => r.rb_fig === fig) || {}).part_name || fig;
+      evidence.push({ label: `Minifigure ${name}`, weight: w, sets });
+      weights.set(`fig|${fig.toLowerCase()}`, { weight: w, label: `Minifigure ${name}` });
+    }
+    saveCache();
+    if (!evidence.length) {
+      status.textContent = "None of your parts or minifigures narrowed it down: they're either very common or Rebrickable doesn't know them. Scan more parts, especially unusual or printed ones, and try again.";
+      return;
+    }
+    // 3. Check the leading candidates against their full parts lists
+    const top = Core.tallyCandidates(evidence).slice(0, SUGGEST.candidates);
+    const results = [];
+    for (let i = 0; i < top.length; i++) {
+      step(`Comparing the best matches (${i + 1} of ${top.length})…`, 0.75 + 0.25 * i / top.length);
+      let st;
+      try { st = await fetchSet(top[i].set_num); } catch { continue; }
+      const sc = Core.scoreCandidate(checkLines(st.lines.concat(st.figParts)), st.figs.map(x => ({ ...x, set_num: st.info.set_num })),
+                                     inventory, lookup, weights, checkLines(st.lines));
+      results.push({ st, ...sc });
+    }
+    results.sort((a, b) => b.score - a.score || (b.have / Math.max(1, b.need)) - (a.have / Math.max(1, a.need)));
+    suggestions = results;
+    step(`Checked ${todo.length} kinds of part${figs.length ? ` and ${figs.length} minifigure${figs.length === 1 ? "" : "s"}` : ""}.`, 1);
+    renderSuggestions();
+  } catch (ex) { err.textContent = ex.message; err.hidden = false; status.textContent = ""; }
+  finally { btn.disabled = false; bar.hidden = true; rbPaced = false; saveCache(); }
+}
+function renderSuggestions() {
+  if (!suggestions.length) { $("#suggest-result").innerHTML = `<p class="muted" style="margin:0">No matching sets found.</p>`; return; }
+  $("#suggest-result").innerHTML = suggestions.map((s, i) => {
+    const pct = s.need ? Math.round(100 * s.have / s.need) : 0;
+    const inPile = expectedSets.some(e => e.info.set_num === s.st.info.set_num);
+    return `<div class="sugg" data-i="${i}">
+      ${s.st.info.set_img_url ? `<img src="${esc(s.st.info.set_img_url)}" alt="" loading="lazy">` : "<span></span>"}
+      <div style="display:grid;gap:6px;min-width:0">
+        <div><span class="rank">#${i + 1} · ${esc(s.st.info.set_num)} · ${esc(s.st.info.year)}</span><h3 style="font-size:16px">${esc(s.st.info.name)}</h3></div>
+        <div class="meter"><i style="width:${pct}%"></i></div>
+        <div style="font-size:14px">You have <b>${pct}%</b> of it · ${s.have} of your pieces fit · ${s.matchedTypes} kinds of part match</div>
+        ${s.clues.length ? `<div class="clues">Strongest clues: ${s.clues.map(esc).join("; ")}</div>` : ""}
+        <div class="row" style="gap:8px">
+          <button class="btn" type="button" data-act="check">Check this set</button>
+          <button class="btn" type="button" data-act="add" ${inPile ? "disabled" : ""}>${inPile ? "In your pile list" : "Add to sets in this pile"}</button>
+        </div>
+      </div>
+    </div>`;
+  }).join("") + `<p class="muted" style="margin:0;font-size:13px">"You have" counts only the pieces in your inventory, so it grows as you scan more.</p>`;
+}
+$("#suggest-go").addEventListener("click", suggestSets);
+$("#suggest-result").addEventListener("click", async e => {
+  const b = e.target.closest("[data-act]"); if (!b) return;
+  const s = suggestions[+b.closest(".sugg").dataset.i]; if (!s) return;
+  b.disabled = true;
+  try {
+    const st = s.st;
+    if (b.dataset.act === "add") {
+      if (!expectedSets.some(x => x.info.set_num === st.info.set_num)) { expectedSets.push(st); expectedChanged(); }
+      toast(`Added ${st.info.name} to the sets in this pile`);
+      renderSuggestions();
+    } else {
+      runCheck([st]);
+      $("#set-result").scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  } catch (ex) { $("#suggest-error").textContent = ex.message; $("#suggest-error").hidden = false; }
+  finally { b.disabled = false; }
+});
+
+// =================== NAME THE FIGURE ===================
+// From loose minifigure parts (or a mixed-up figure), find the figures that contain them.
+let figCands = [];
+const figPartRows = () => review.filter(r => r.figPart && r.items.length && r.kinds[r.item] === "part");
+function renderFigbar() {
+  const n = figPartRows().length;
+  $("#figbar").hidden = n === 0 && !figCands.length;
+  $("#figbar-title").textContent = `${n} minifigure part${n === 1 ? "" : "s"} ticked`;
+  $("#namefig-go").disabled = n === 0;
+}
+function figPartInfo(r) {
+  const it = r.items[r.item], c = r.colorOpts[r.colorSel], entry = r.entries[r.item];
+  return { r, id: it.id, no: blFromItem(it), name: it.name, colour: c ? c.name : "", blc: c ? blColour(c.name) : null, rb: entry ? entry.part_num : "" };
+}
+const sameNum = (a, b) => { a = String(a || "").toLowerCase(); b = String(b || "").toLowerCase(); return !!a && (a === b || Core.loosePart(a) === Core.loosePart(b)); };
+
+// With BrickLink keys: BrickLink lists every minifigure that contains a part in a colour.
+async function nameFigBrickLink(parts, step) {
+  const tally = new Map();
+  for (let i = 0; i < parts.length; i++) {
+    const p = parts[i];
+    step(`Asking BrickLink which minifigures have ${p.name} (${i + 1} of ${parts.length})…`);
+    const sup = await blGet("supersets", { kind: "part", no: p.no, color_id: p.blc ?? "" });
+    for (const s of sup) {
+      if (s.type !== "MINIFIG") continue;
+      if (!tally.has(s.no)) tally.set(s.no, { bl: s.no, rb: "", name: s.name, hits: new Set() });
+      tally.get(s.no).hits.add(i);
+    }
+  }
+  const top = [...tally.values()].sort((a, b) => b.hits.size - a.hits.size).slice(0, 8);
+  for (let i = 0; i < top.length; i++) {
+    step(`Checking the closest figures (${i + 1} of ${top.length})…`);
+    try { top[i].total = (await blGet("subsets", { kind: "fig", no: top[i].bl })).filter(x => x.type === "PART").length; } catch { top[i].total = null; }
+    top[i].img = `https://img.bricklink.com/ItemImage/MN/0/${encodeURIComponent(top[i].bl)}.png`;
+  }
+  return top.map(c => ({ ...c, matched: c.hits.size }));
+}
+
+// Without BrickLink keys: Rebrickable. Start from the rarest ticked part, find the figures in the
+// sets that have it, and check each figure's parts list against all the ticked parts.
+async function nameFigRebrickable(parts, step) {
+  if (!store.get("rbKey", "")) throw new Error("Naming a figure needs your Rebrickable key (Settings), or BrickLink keys in the helper.");
+  await ensureColours();
+  const lookup = Core.buildColorLookup(rbColors);
+  rbCache.setFigs = rbCache.setFigs || {}; rbCache.figParts = rbCache.figParts || {}; rbCache.figInfo = rbCache.figInfo || {};
+  for (let i = 0; i < parts.length; i++) {
+    const p = parts[i];
+    step(`Looking up ${p.name} on Rebrickable (${i + 1} of ${parts.length})…`);
+    p.rb = p.rb || await resolvePart({ part_id: p.id, bricklink_id: p.no });
+    p.cid = p.colour ? lookup.get(Core.normColor(p.colour)) ?? null : null;
+    if (p.rb && p.cid != null) p.nSets = (await partColours(p.rb))[p.cid] || 0;
+  }
+  const seeds = parts.filter(p => p.nSets).sort((a, b) => a.nSets - b.nSets).slice(0, 2);
+  if (!seeds.length) throw new Error("None of the ticked parts could be found on Rebrickable in that colour. Check the colours, or tick more parts.");
+  const figs = new Set();
+  for (const p of seeds) {
+    step(`Finding sets with ${p.name} in ${p.colour}…`);
+    const sets = await pcSets(p.rb, p.cid);
+    for (const s of sets) if (/^fig-/i.test(s)) figs.add(s);
+    const real = sets.filter(s => !/^fig-/i.test(s)).slice(0, 15);
+    for (let i = 0; i < real.length && figs.size < 40; i++) {
+      step(`Looking at the minifigures in ${real[i]} (${i + 1} of ${real.length})…`);
+      if (!rbCache.setFigs[real[i]]) rbCache.setFigs[real[i]] = ((await rbGet(`/sets/${encodeURIComponent(real[i])}/minifigs/`, {}, { missingOk: true })) || [])
+        .map(f => { rbCache.figInfo[f.set_num] = { name: f.set_name, img: f.set_img_url }; return f.set_num; });
+      for (const f of rbCache.setFigs[real[i]]) figs.add(f);
+    }
+  }
+  const out = [], list = [...figs].slice(0, 40);
+  for (let i = 0; i < list.length; i++) {
+    const fig = list[i];
+    step(`Comparing ${list.length} possible figures (${i + 1} of ${list.length})…`);
+    if (!rbCache.figParts[fig]) rbCache.figParts[fig] = ((await rbGet(`/minifigs/${encodeURIComponent(fig)}/parts/`, {}, { missingOk: true })) || [])
+      .map(x => [x.part.part_num, x.color.id, (x.part.external_ids && x.part.external_ids.BrickLink) || []]);
+    if (!rbCache.figInfo[fig]) {
+      const d = await rbGet(`/minifigs/${encodeURIComponent(fig)}/`, {}, { missingOk: true });
+      rbCache.figInfo[fig] = { name: d ? d.name : fig, img: d ? d.set_img_url : null };
+    }
+    const fp = rbCache.figParts[fig];
+    const hits = new Set(parts.map((p, k) => fp.some(([num, cid, bl]) => (sameNum(num, p.rb) || sameNum(num, p.id) || bl.some(b => sameNum(b, p.no)))
+      && (p.cid == null || cid === p.cid)) ? k : -1).filter(k => k >= 0));
+    if (hits.size) out.push({ bl: "", rb: fig, name: rbCache.figInfo[fig].name, img: rbCache.figInfo[fig].img, hits, matched: hits.size, total: fp.length });
+  }
+  saveCache();
+  return out;
+}
+
+$("#namefig-go").addEventListener("click", async () => {
+  const rows = figPartRows(); if (!rows.length) return;
+  const parts = rows.map(figPartInfo), btn = $("#namefig-go"), status = $("#namefig-status"), err = $("#namefig-error");
+  const step = t => (status.textContent = t);
+  btn.disabled = true; err.hidden = true; figCands = []; $("#namefig-result").innerHTML = "";
+  const missingColour = parts.filter(p => !p.colour).length;
+  try {
+    await blReady;
+    let cands;
+    if (blOn) {
+      try { cands = await nameFigBrickLink(parts, step); }
+      catch (ex) { if (!store.get("rbKey", "")) throw ex; step("BrickLink didn't answer, trying Rebrickable…"); rbPaced = true; cands = await nameFigRebrickable(parts, step); }
+    } else { rbPaced = true; cands = await nameFigRebrickable(parts, step); }
+    cands.sort((a, b) => b.matched - a.matched || ((a.total ?? 99) - (b.total ?? 99)));
+    const best = cands.length ? cands[0].matched : 0;
+    figCands = cands.filter(c => c.matched >= Math.max(1, best - 1)).slice(0, 6).map(c => ({ ...c, of: parts.length, rows: rows.map(r => r.id) }));
+    status.textContent = !figCands.length ? "No minifigure has these parts. Check each part and colour, or untick parts that don't belong to this figure."
+      : `Best matches for ${parts.length} part${parts.length === 1 ? "" : "s"}${missingColour ? ` (${missingColour} without a colour, so any colour counted)` : ""}. Open BrickLink or Rebrickable to compare the pictures.`;
+    renderFigCands();
+  } catch (ex) { err.textContent = ex.message; err.hidden = false; status.textContent = ""; }
+  finally { btn.disabled = false; rbPaced = false; renderFigbar(); }
+});
+function renderFigCands() {
+  $("#namefig-result").innerHTML = figCands.map((c, i) => {
+    const no = c.bl || c.rb;
+    return `<div class="cand" data-i="${i}">
+      ${c.img ? `<img src="${esc(c.img)}" alt="" loading="lazy">` : "<span></span>"}
+      <div style="display:grid;gap:4px;min-width:0">
+        <strong style="overflow-wrap:anywhere">${esc(c.name || no)}</strong>
+        <span class="muted mono" style="font-size:12px">${esc(no)} · has ${c.matched} of your ${c.of} part${c.of === 1 ? "" : "s"}${c.total ? ` · ${c.total} parts in the figure` : ""}</span>
+        <div class="links">
+          ${c.bl ? ext(blUrl("fig", c.bl), "BrickLink", `Open ${c.bl} on BrickLink`) : ext(`https://www.bricklink.com/v2/search.page?q=${encodeURIComponent(c.name || no)}#T=M`, "BrickLink", "Search BrickLink for this figure")}
+          ${ext(rbUrl("fig", c.rb, c.name), "Rebrickable", "Open on Rebrickable")}
+          ${c.bl ? priceChip("fig", c.bl, null) : ""}
+        </div>
+      </div>
+      <button class="btn" type="button" data-usefig="${i}" title="Replace the ticked parts with this minifigure">Use this figure</button>
+    </div>`;
+  }).join("");
+}
+$("#namefig-result").addEventListener("click", e => {
+  const b = e.target.closest("[data-usefig]"); if (!b) return;
+  const c = figCands[+b.dataset.usefig]; if (!c) return;
+  const used = review.filter(r => c.rows.includes(r.id));
+  for (const r of used) { r.skip = true; r.figPart = false; r.notes.push(`Counted as part of ${c.name || c.bl || c.rb} instead`); }
+  const first = used[0] || {}, no = c.bl || c.rb;
+  const rv = { id: ++reviewSeq, crop: first.crop, photo: first.photo, n: first.n, mode: "figs", error: "",
+    items: [{ id: no, name: c.name || no, img_url: c.img || "", score: c.matched / Math.max(1, c.of), type: "fig",
+              external_sites: c.bl ? [{ name: "BrickLink", url: blUrl("fig", c.bl) }] : [] }],
+    colors: [], item: 0, kinds: ["fig"], colorOpts: [], colorSel: -1, figOpts: [], figSel: -1, notes: [], entries: [], figMatch: null,
+    qty: 1, skip: false, touched: true, figPart: false, rbFig: c.rb || "" };
+  applyChoice(rv, false);
+  rv.notes.unshift(`Named from ${used.length} loose part${used.length === 1 ? "" : "s"}; the parts are skipped so they aren't counted twice`);
+  review.splice(review.indexOf(first) + 1 || review.length, 0, rv);
+  figCands = []; $("#namefig-result").innerHTML = ""; $("#namefig-status").textContent = "";
+  renderReview();
+  toast(`Added ${c.name || no} to the list`);
+});
+blReady.then(on => { if (on) { renderReview(); if (!$("#view-inv").hidden) renderInventory(); } });
+
+// init
+$("#inv-count").textContent = inventory.reduce((s, r) => s + r.quantity, 0);
+renderMode();
+$("#detect-panel").hidden = true;
+renderExpected();
+})();
+</script>
+</body>
+</html>

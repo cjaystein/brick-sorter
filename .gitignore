@@ -1,0 +1,14 @@
+# Private keys and local data: never commit these
+bricklink_keys.json
+bricklink_cache.json
+.brick_sorter_cache.json
+inventory*.csv
+suggested_sets.csv
+crops/
+crops_fig/
+*_check.xlsx
+scan_review.html
+name_fig.html
+__pycache__/
+*.pt
+lego-detector.onnx
