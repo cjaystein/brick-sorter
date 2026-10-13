@@ -402,7 +402,7 @@ details.setblock > summary { cursor: pointer; font-weight: 700; color: var(--acc
       <div class="row">
         <div style="min-width:0;flex:1 1 260px">
           <h2>Which sets is this from?</h2>
-          <p class="muted" style="margin:4px 0 0;font-size:14px;max-width:62ch">Finds sets that contain your inventory's rarer parts and minifigures, then checks the best matches against their full parts lists. Common bricks are in thousands of sets, so they count for little. The first run takes a few minutes; Rebrickable lookups are remembered for next time.</p>
+          <p class="muted" style="margin:4px 0 0;font-size:14px;max-width:62ch">Finds sets that contain your inventory's rarer parts and minifigures, then checks the best matches against their full parts lists. Common bricks are in thousands of sets, so they count for little. The first run takes a few minutes; Rebrickable lookups are remembered for next time. On a phone, keep this page on screen while it runs: switching apps or locking the phone pauses it.</p>
         </div>
         <button class="btn primary" type="button" id="suggest-go">Suggest sets</button>
       </div>
@@ -1124,7 +1124,7 @@ let finder = store.get("finder", "builtin");
 // (a general "person" detector that also finds minifigures, run on tiles).
 const MODELS = {
   trained: { key: "detector", file: "lego-detector.onnx", title: "brick detector", tiles: 1, iou: 0.7, conf: 0.3,
-             empty: "Load the lego-detector.onnx file from your training folder. This browser remembers it, so you only do this once per device.",
+             empty: "Load the lego-detector.onnx file from your training folder. If it's next to this page on your website, or you opened the page with serve.py, it loads by itself. This browser remembers it.",
              help: "Lower if parts are missed. Raise if it boxes things that aren't parts." },
   figures: { key: "figfinder", file: "figure-finder.onnx", title: "figure finder", tiles: 3, iou: 0.5, conf: 0.1, cls: "person",
              empty: "Load the figure-finder.onnx file. If it's next to this page on your website, or you opened the page with serve.py, it loads by itself. This browser remembers it.",
@@ -1340,7 +1340,7 @@ $("#finder-nav").addEventListener("click", e => {
   finder = b.dataset.finder; store.set("finder", finder); renderFinder();
   if (finder === "figures" && scanMode !== "figs") { scanMode = "figs"; store.set("scanMode", scanMode); renderMode(); }   // figures are identified as minifigures
   const m = cur();
-  if (m && !m.bytes && m.id === "figures") autoLoadFigures().then(() => { renderFinder(); detectAll(); });
+  if (m && !m.bytes) autoLoadModel(m).then(() => { renderFinder(); detectAll(); });
   else detectAll();
 });
 async function useModelBytes(m, bytes, name, quiet) {
@@ -1350,16 +1350,21 @@ async function useModelBytes(m, bytes, name, quiet) {
   try { await idbPut(m.key, { name, bytes }); if (!quiet) toast(`${m.title[0].toUpperCase() + m.title.slice(1)} loaded and saved in this browser`); }
   catch { if (!quiet) toast(`Loaded. This browser can't keep it, so load it again next time.`); }
 }
-// When the page is served from a website or serve.py, a figure-finder.onnx next to it loads by itself.
-async function autoLoadFigures() {
-  const m = MODELS.figures;
-  if (m.bytes || !/^https?:$/.test(location.protocol)) return;
+// When the page is served from a website or serve.py, a model file next to it (figure-finder.onnx,
+// lego-detector.onnx) loads by itself the first time it's chosen, and the browser keeps it.
+async function autoLoadModel(m) {
+  if (!m || m.bytes || m.loading || !/^https?:$/.test(location.protocol)) return;
+  const title = m.title[0].toUpperCase() + m.title.slice(1);
   try {
+    const head = await fetch(m.file, { method: "HEAD", cache: "no-store" });
+    if (!head.ok) return;
+    const mb = Math.round((+head.headers.get("content-length") || 0) / 1e6);
+    toast(`Downloading the ${m.title}${mb ? ` (${mb} MB)` : ""}. This happens once.`);
     const r = await fetch(m.file, { cache: "no-store" });
     if (!r.ok) return;
     await useModelBytes(m, new Uint8Array(await r.arrayBuffer()), m.file, true);
-    toast("Figure finder loaded");
-  } catch (e) { console.warn("figure finder not loaded", e); m.bytes = null; }
+    toast(`${title} loaded`);
+  } catch (e) { console.warn(`${m.title} not loaded`, e); m.bytes = null; }
 }
 $("#det-file").addEventListener("change", async e => {
   const file = e.target.files[0]; e.target.value = ""; const m = cur(); if (!file || !m) return;
@@ -1398,7 +1403,7 @@ $("#det-conf").addEventListener("input", () => {
   for (const m of Object.values(MODELS)) {
     try { const saved = await idbGet(m.key); if (saved && saved.bytes) setModel(m, saved.bytes, saved.name); } catch {}
   }
-  if (finder === "figures" && !MODELS.figures.bytes) await autoLoadFigures();
+  if (cur() && !cur().bytes) await autoLoadModel(cur());
   if (cur() && !cur().bytes) finder = "builtin";
   renderFinder();
 })();
@@ -1914,22 +1919,44 @@ $("#clear-yes").addEventListener("click", () => { inventory = []; saveInventory(
 
 // =================== SET CHECK ===================
 let rbPaced = false, rbLast = 0;        // set while suggesting, to stay within Rebrickable's request limits
+let rbNotice = null;                      // shows waits on screen while suggesting
+const RB_TIMEOUT = 30000;
+const sleep = ms => new Promise(res => setTimeout(res, ms));
+// One request with a time limit. Phones pause pages in the background, which can leave a request hanging forever.
+async function fetchWithTimeout(url, ms) {
+  const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), ms);
+  try { return await fetch(url, { signal: ctl.signal }); } finally { clearTimeout(t); }
+}
 async function rbGet(path, params = {}, opts = {}) {
   await helperReady;
   const key = store.get("rbKey", "");
   let url = `${RB}${path}?` + new URLSearchParams({ ...params, key, page_size: 1000 });
   const out = [];
+  let throttled = 0, timeouts = 0;
   while (url) {
     let r;
-    if (rbPaced) { const wait = rbLast + 1000 - Date.now(); if (wait > 0) await new Promise(s => setTimeout(s, wait)); rbLast = Date.now(); }
-    try { r = await fetch(url); }
-    catch { throw new Error(viaHelper ? "The local helper stopped responding. Check that its window is still open." : `This browser couldn't reach Rebrickable; the browser blocks it when the app is opened as a file. ${HELPER_TIP}`); }
+    if (rbPaced) { const wait = rbLast + 1000 - Date.now(); if (wait > 0) await sleep(wait); rbLast = Date.now(); }
+    try { r = await fetchWithTimeout(url, RB_TIMEOUT); }
+    catch (e) {
+      if (e && e.name === "AbortError" && ++timeouts < 3) { if (rbNotice) rbNotice("Rebrickable is slow to answer, trying again…"); continue; }
+      if (e && e.name === "AbortError") throw new Error("Rebrickable didn't answer after three tries. Check your connection and try again; lookups done so far are remembered.");
+      throw new Error(viaHelper ? "The local helper stopped responding. Check that its window is still open." : `This browser couldn't reach Rebrickable. Check your internet connection. ${location.protocol === "file:" ? HELPER_TIP : ""}`.trim());
+    }
     if (r.status === 502 && viaHelper) throw new Error("The local helper couldn't reach Rebrickable. Check your internet connection.");
     if (r.status === 401) throw new Error("Rebrickable didn't accept the API key. Check it in Settings.");
     if (r.status === 404 && opts.missingOk) return null;
     if (r.status === 404) throw new Error("Rebrickable doesn't know that set number. Try adding the version, e.g. 10696-1.");
-    if (r.status === 429) { await new Promise(s => setTimeout(s, 3000)); continue; }
+    if (r.status === 429) {
+      // Rebrickable says how long to wait, e.g. "Request was throttled. Expected available in 23 seconds."
+      const body = await r.json().catch(() => ({}));
+      const m = /(\d+)\s*second/.exec(body.detail || ""), hdr = +r.headers.get("Retry-After");
+      const wait = Math.min(120, Math.max(3, hdr || (m ? +m[1] : 0) || 3 * 2 ** throttled));
+      if (++throttled > 6) throw new Error("Rebrickable keeps asking to slow down. Wait a few minutes and try again; lookups done so far are remembered.");
+      for (let left = wait; left > 0; left--) { if (rbNotice) rbNotice(`Rebrickable asked to slow down, carrying on in ${left} s…`); await sleep(1000); }
+      continue;
+    }
     if (!r.ok) throw new Error(`Rebrickable returned ${r.status}.`);
+    throttled = 0; timeouts = 0;
     const data = await r.json();
     if (!Array.isArray(data.results)) return data;
     out.push(...data.results);
@@ -2188,13 +2215,15 @@ async function figSets(fig) {
 
 async function suggestSets() {
   const status = $("#suggest-status"), bar = $("#suggest-progress"), err = $("#suggest-error"), btn = $("#suggest-go");
-  const step = (text, frac) => { status.textContent = text; bar.firstElementChild.style.width = `${Math.round(frac * 100)}%`; };
+  const step = (text, frac) => { lastStep = text; status.textContent = text; bar.firstElementChild.style.width = `${Math.round(frac * 100)}%`; };
   err.hidden = true; $("#suggest-result").innerHTML = "";
   if (!store.get("rbKey", "")) { $("#key-needed").hidden = false; return; }
   const partRows = inventory.filter(r => Core.rowType(r) === "part" && r.part_id);
   const figRows = inventory.filter(r => Core.rowType(r) === "fig" && r.rb_fig);
   if (!partRows.length && !figRows.length) { status.textContent = "Your inventory is empty. Scan some parts first."; return; }
   btn.disabled = true; bar.hidden = false; rbPaced = true;
+  let lastStep = "";
+  rbNotice = t => { status.textContent = `${lastStep} ${t}`; };
   try {
     await ensureColours();
     const lookup = Core.buildColorLookup(rbColors);
@@ -2244,21 +2273,22 @@ async function suggestSets() {
     }
     // 3. Check the leading candidates against their full parts lists
     const top = Core.tallyCandidates(evidence).slice(0, SUGGEST.candidates);
-    const results = [];
+    const results = [], skipped = [];
     for (let i = 0; i < top.length; i++) {
-      step(`Comparing the best matches (${i + 1} of ${top.length})…`, 0.75 + 0.25 * i / top.length);
+      step(`Comparing the best matches (${i + 1} of ${top.length}: set ${top[i].set_num})…`, 0.75 + 0.25 * i / top.length);
       let st;
-      try { st = await fetchSet(top[i].set_num); } catch { continue; }
+      try { st = await fetchSet(top[i].set_num); }
+      catch (ex) { skipped.push(`${top[i].set_num} (${ex.message})`); continue; }
       const sc = Core.scoreCandidate(checkLines(st.lines.concat(st.figParts)), st.figs.map(x => ({ ...x, set_num: st.info.set_num })),
                                      inventory, lookup, weights, checkLines(st.lines));
       results.push({ st, ...sc });
     }
     results.sort((a, b) => b.score - a.score || (b.have / Math.max(1, b.need)) - (a.have / Math.max(1, a.need)));
     suggestions = results;
-    step(`Checked ${todo.length} kinds of part${figs.length ? ` and ${figs.length} minifigure${figs.length === 1 ? "" : "s"}` : ""}.`, 1);
+    step(`Checked ${todo.length} kinds of part${figs.length ? ` and ${figs.length} minifigure${figs.length === 1 ? "" : "s"}` : ""}.${skipped.length ? ` Skipped ${skipped.length} set${skipped.length === 1 ? "" : "s"} Rebrickable didn't answer for: ${skipped.join("; ")}.` : ""}`, 1);
     renderSuggestions();
   } catch (ex) { err.textContent = ex.message; err.hidden = false; status.textContent = ""; }
-  finally { btn.disabled = false; bar.hidden = true; rbPaced = false; saveCache(); }
+  finally { btn.disabled = false; bar.hidden = true; rbPaced = false; rbNotice = null; saveCache(); }
 }
 function renderSuggestions() {
   if (!suggestions.length) { $("#suggest-result").innerHTML = `<p class="muted" style="margin:0">No matching sets found.</p>`; return; }
