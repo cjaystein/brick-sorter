@@ -87,16 +87,11 @@ INVENTORY_FIELDS = [
 # Detection: split one photo of many parts into one crop per part
 # --------------------------------------------------------------------------
 
-def detect_parts(image_bgr, sensitivity=1.0, min_size=0.0003, analysis_size=1000):
-    """Return a list of (x0, y0, x1, y1) boxes in full-resolution pixels.
+def foreground_mask(image_bgr, sensitivity=1.0, analysis_size=1000, close_frac=0.006):
+    """Mask (uint8, 255 = not background) at analysis size, and the scale used.
 
-    The local background colour is estimated across the photo. Every pixel
-    that differs enough from it (in Lab colour space) is foreground. Nearby
-    foreground is joined, small specks are dropped, and each remaining blob
-    becomes one part.
-
-    sensitivity: higher finds fainter parts (and more shadows); 0.5-2.
-    min_size:    smallest part kept, as a fraction of the photo's area.
+    See detect_parts. close_frac sets how far apart bits of one part may be and
+    still be joined (as a fraction of the photo's longer side).
     """
     h, w = image_bgr.shape[:2]
     scale = analysis_size / max(h, w)
@@ -156,11 +151,28 @@ def detect_parts(image_bgr, sensitivity=1.0, min_size=0.0003, analysis_size=1000
     thresh = threshold(diff, first)
     mask = (diff > thresh).astype(np.uint8) * 255
 
-    r = max(2, int(0.006 * max(sh, sw)))
+    r = max(2, int(close_frac * max(sh, sw)))
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE,
                             cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 1, 2 * r + 1)))
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN,
                             cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3)))
+    return mask, scale
+
+
+def detect_parts(image_bgr, sensitivity=1.0, min_size=0.0003, analysis_size=1000):
+    """Return a list of (x0, y0, x1, y1) boxes in full-resolution pixels.
+
+    The local background colour is estimated across the photo. Every pixel
+    that differs enough from it (in Lab colour space) is foreground. Nearby
+    foreground is joined, small specks are dropped, and each remaining blob
+    becomes one part.
+
+    sensitivity: higher finds fainter parts (and more shadows); 0.5-2.
+    min_size:    smallest part kept, as a fraction of the photo's area.
+    """
+    h, w = image_bgr.shape[:2]
+    mask, scale = foreground_mask(image_bgr, sensitivity, analysis_size)
+    sh, sw = mask.shape[:2]
 
     n, _, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
     min_area = min_size * sh * sw

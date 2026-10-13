@@ -334,6 +334,37 @@ python brick_sorter.py scan pile.jpg --model lego-detector.pt --debug
 `--conf` (default 0.3): lower finds more parts, higher ignores things that
 aren't parts. `--imgsz` must match the size used in training (default 960).
 
+## Pile detector (heaps of minifigure parts)
+
+The finders above need items spread out (background method), standing up
+(figure finder) or similar to single bricks (brick detector). A heap of heads,
+torsos, legs and hair defeats all three. The pile detector learns heaps from
+**your own parts**:
+
+1. Photograph your parts spread out with gaps (20–40 photos, 300+ items in
+   total, both sides of each). Put them in `brick-detector/piles/spread`.
+   Optionally add photos of empty surfaces to `piles/empty`, and a few real
+   pile photos to `piles/test` for checking.
+2. Put `make_piles.py`, `brick_sorter.py` and `train_pile_detector.ipynb`
+   in the folder that holds `brick-detector`, open the notebook in Jupyter
+   (as for the brick detector) and run the cells in order.
+3. It cuts every item out of your photos, makes 4,000 labelled piles from the
+   cut-outs, trains on your graphics card (about 1–2 hours on an RTX 3080),
+   shows the result on your test piles, and saves `pile-detector.pt` and
+   `pile-detector.onnx`.
+
+Use it like the brick detector: `scan pile.jpg --mode mixed --model
+pile-detector.pt`, or in the web app load `pile-detector.onnx` under **Part
+finder → Brick detector**. Without the notebook:
+
+```
+python make_piles.py extract piles/spread --out piles
+python make_piles.py generate --out piles --count 4000
+```
+
+It copes with one layer of overlapping items. Items buried under others
+can't be seen, so take the top layer off and photograph again.
+
 ## How matching works
 
 Brickognize returns BrickLink part IDs; Rebrickable lists its own IDs plus the
