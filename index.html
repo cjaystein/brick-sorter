@@ -911,7 +911,7 @@ const Core = (() => {
     for (const st of sets) for (const l of st.lines.concat(st.figParts || [])) {
       let e = index.get(l.part_num.toLowerCase());
       if (!e) {
-        e = { part_num: l.part_num, name: l.name, bl_ids: l.bl_ids, colors: new Map(), sets: new Set() };
+        e = { part_num: l.part_num, name: l.name, bl_ids: l.bl_ids, colors: new Map(), sets: new Set(), colorSets: new Map() };
         for (const pid of [l.part_num, ...l.bl_ids]) {
           if (!index.has(pid.toLowerCase())) index.set(pid.toLowerCase(), e);
           if (!loose.has(loosePart(pid))) loose.set(loosePart(pid), e);
@@ -919,6 +919,8 @@ const Core = (() => {
       }
       e.colors.set(l.color_id, (e.colors.get(l.color_id) || 0) + l.quantity);
       e.sets.add(st.info.set_num);
+      if (!e.colorSets.has(l.color_id)) e.colorSets.set(l.color_id, new Set());
+      e.colorSets.get(l.color_id).add(st.info.set_num);
     }
     return { lookup, byId, index, loose, figs };
   }
@@ -1717,11 +1719,12 @@ function applyChoice(r, keepItem) {
   }
   if (cat && !entry) r.notes.push("Not in your expected sets");
   r.colorOpts = Core.colourOptions(cat, entry, r.colors);
-  if (cat && entry) {
-    const c = Core.chooseColour(cat, entry, r.colors);
-    r.colorSel = r.colorOpts.findIndex(o => o.id === c.id);
-    if (c.note) r.notes.push(c.note);
-  } else r.colorSel = r.colorOpts.length ? 0 : -1;
+  // Keep Brickognize's most likely colour. If your sets have this part only in other colours, say so
+  // (and which), so it's one tap to switch when the guess is wrong.
+  let best = -1;
+  r.colorOpts.forEach((o, i) => { if (o.score != null && (best < 0 || o.score > r.colorOpts[best].score)) best = i; });
+  r.colorSel = best >= 0 ? best : r.colorOpts.length ? 0 : -1;
+
 }
 
 function renderReview() {
@@ -1740,10 +1743,12 @@ function renderReview() {
     else if (cat && kind === "fig") chip = r.figSel < 0 ? `<span class="chip warn">Not in your sets · ${pct}%</span>`
       : (r.figMatch && r.figMatch.sim < Core.FIG_SURE_AT && !r.touched) ? `<span class="chip warn">Check link · ${pct}%</span>`
       : `<span class="chip star">In your sets · ${pct}%</span>`;
-    else if (cat) chip = entry ? (score < 0.4 ? `<span class="chip warn">Check · ${pct}%</span>` : `<span class="chip star">In your sets · ${pct}%</span>`)
+    else if (cat) chip = entry ? (score < 0.4 ? `<span class="chip warn">Check · ${pct}%</span>`
+        : r.colorOpts[r.colorSel] && !r.colorOpts[r.colorSel].inSet ? `<span class="chip warn">Check colour · ${pct}%</span>`
+        : `<span class="chip star">In your sets · ${pct}%</span>`)
       : `<span class="chip warn">Not in your sets · ${pct}%</span>`;
     else chip = score < 0.7 ? `<span class="chip warn">Check · ${pct}%</span>` : `<span class="chip ok">${pct}%</span>`;
-    const itemOpts = r.items.map((x, i) => `<option value="${i}" ${i === r.item ? "selected" : ""}>${r.kinds[i] === "fig" && r.mode === "mixed" ? "Minifig · " : ""}${esc(x.id)} · ${esc(x.name)} (${Math.round(x.score * 100)}%)${r.entries[i] ? " · in your sets" : ""}</option>`).join("");
+    const itemOpts = r.items.map((x, i) => `<option value="${i}" ${i === r.item ? "selected" : ""}>${r.kinds[i] === "fig" && r.mode === "mixed" ? "Minifig · " : ""}${esc(x.id)} · ${esc(x.name)} (${Math.round(x.score * 100)}%)${r.entries[i] && r.entries[i].sets ? ` · in ${[...r.entries[i].sets].join(", ")}` : ""}</option>`).join("");
     let second = "";
     if (it && kind === "part") {
       const colOpts = [`<option value="-1" ${r.colorSel === -1 ? "selected" : ""}>Colour unknown</option>`]
@@ -1784,6 +1789,7 @@ function renderReview() {
           <button class="btn" type="button" data-k="skip" ${r.items.length ? "" : "disabled"}>${r.skip ? "Include" : "Skip"}</button>
         </div>
       </div>
+      ${cat && it ? whichSets(r) : ""}
       ${rareFlag(r)}
       ${r.notes.length ? `<div class="note">${r.notes.map(esc).join(". ")}.</div>` : ""}
       ${r.blobs && r.blobs.length ? `<details class="more"><summary>More photos of this item</summary>
@@ -1816,6 +1822,27 @@ $("#review").addEventListener("click", e => {
   const el = e.target.closest("[data-k=skip]"); if (!el) return;
   const r = review.find(x => x.id === +el.closest(".item").dataset.id); r.skip = !r.skip; renderReview();
 });
+// ---------- which of your sets an item is in ----------
+const setName = sn => { const st = expectedSets.find(x => x.info.set_num === sn); return st ? `${st.info.name} (${sn})` : sn; };
+const listSets = nums => { const a = [...nums].map(setName); return a.length <= 1 ? a.join("") : `${a.slice(0, -1).join(", ")} and ${a[a.length - 1]}`; };
+function whichSets(r) {
+  const kind = r.kinds[r.item], entry = r.entries[r.item];
+  let text = "";
+  if (kind === "fig") {
+    const f = r.figOpts[r.figSel];
+    if (f && f.sets && f.sets.size) text = `In your set${f.sets.size > 1 ? "s" : ""}: ${listSets(f.sets)}`;
+  } else if (kind === "part" && entry) {
+    const col = r.colorOpts[r.colorSel], inColour = col && entry.colorSets ? entry.colorSets.get(col.id) : null;
+    if (inColour && inColour.size) text = `In your set${inColour.size > 1 ? "s" : ""}: ${listSets(inColour)}`;
+    else if (col) {
+      const alt = r.colorOpts.filter(o => o.inSet).map(o => o.name);
+      text = `This part is in ${listSets(entry.sets)}${alt.length ? ` in ${alt.slice(0, 3).join(" or ")}` : ""}, not ${col.name}. Pick ${alt.length === 1 ? alt[0] : "its colour"} from the colour list if that's what it is.`;
+    }
+    else text = `In your set${entry.sets.size > 1 ? "s" : ""}: ${listSets(entry.sets)}`;
+  }
+  return text ? `<div class="note" style="grid-column:1/-1;color:var(--ink)">${esc(text)}</div>` : "";
+}
+
 // ---------- rare parts: flag anything found in only a few sets while you scan ----------
 const RARE_AT = 3;
 let rarityBusy = false;

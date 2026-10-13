@@ -361,8 +361,8 @@ def to_row(result, photo, crop, review_below, catalogue=None, mode="parts"):
     if kind == "part":
         if catalogue:
             # A match to one of your sets is strong evidence, so only weak or
-            # out-of-set guesses need a look.
-            review = pick["entry"] is None or score < 0.4 or not pick["color_name"]
+            # out-of-set guesses, or a colour your sets don't have it in, need a look.
+            review = pick["entry"] is None or score < 0.4 or not pick["color_name"] or pick.get("colour_mismatch")
         else:
             review = score < review_below or not pick["color_name"]
     elif kind == "fig":
@@ -1203,15 +1203,22 @@ class SetCatalogue:
             return pick
 
         allowed = entry["colors"]
-        cid = None
-        for c in colors:
-            guess = self.lookup.get(norm_color(c.get("name")))
+        sets = ", ".join(sorted(entry.get("sets") or []))
+        if colors:
+            # Keep Brickognize's most likely colour; if your sets only have this part in other
+            # colours, say which and flag it for checking.
+            top = max(colors, key=lambda c: float(c.get("score", 0)))
+            guess = self.lookup.get(norm_color(top.get("name")))
+            pick.update(color_name=top.get("name", ""), color_id=guess if guess is not None else top.get("id", ""))
             if guess in allowed:
-                cid = guess
-                if c is not colors[0]:
-                    notes.append(f"colour {self.by_id[guess]['name']} chosen because this part "
-                                 f"isn't {colors[0].get('name')} in your sets")
-                break
+                notes.append(f"in your set{'s' if ',' in sets else ''} {sets}" if sets else "")
+            else:
+                alt = " or ".join(self.by_id[a]["name"] for a in list(allowed)[:3] if a in self.by_id)
+                notes.append(f"this part is in {sets} in {alt}, not {top.get('name')}: check its colour")
+                pick["colour_mismatch"] = True
+            notes[:] = [n for n in notes if n]
+            return pick
+        cid = None
         if cid is None:
             if len(allowed) == 1:
                 cid = next(iter(allowed))
