@@ -2569,8 +2569,8 @@ async function suggestSets() {
   err.hidden = true; $("#suggest-result").innerHTML = "";
   await loadIndex();
   if (!store.get("rbKey", "") && !RBX) { $("#key-needed").hidden = false; return; }
-  const partRows = inventory.filter(r => Core.rowType(r) === "part" && r.part_id);
-  const figRows = inventory.filter(r => Core.rowType(r) === "fig" && (r.rb_fig || r.part_name));
+  let partRows = inventory.filter(r => Core.rowType(r) === "part" && r.part_id);
+  let figRows = inventory.filter(r => Core.rowType(r) === "fig" && (r.rb_fig || r.part_name));
   if (!partRows.length && !figRows.length) { status.textContent = "Your inventory is empty. Scan some parts first."; return; }
   btn.disabled = true; bar.hidden = false; rbPaced = true;
   let lastStep = "";
@@ -2582,6 +2582,23 @@ async function suggestSets() {
     step("Looking up your parts on Rebrickable…", 0.02);
     await resolveAll(partRows);
     saveCache();
+    // Sets already in this pile take their pieces first, as in a set check. Those pieces then don't keep
+    // pointing at sets you've already found (or their re-releases), and those sets don't take up places.
+    const qty = rows => rows.reduce((t, r) => t + (Core.rowType(r) === "part" || Core.rowType(r) === "fig" ? Math.max(0, parseInt(r.quantity, 10) || 0) : 0), 0);
+    let pool = inventory.map(r => r.rb_part || !rbCache.resolve[String(r.part_id)] ? r : { ...r, rb_part: rbCache.resolve[String(r.part_id)] });
+    const accepted = new Set(expectedSets.map(st => st.info.set_num)), before = qty(pool);
+    for (const st of expectedSets) {
+      pool = Core.compareSet(checkLines(st.lines.concat(st.figParts || [])), pool, lookup).extras;
+      if (st.figs && st.figs.length) pool = Core.compareFigs(st.figs.map(x => ({ ...x, set_num: st.info.set_num })), pool).extras;
+    }
+    const usedByPile = before - qty(pool);
+    const pileNote = usedByPile ? ` Left out ${usedByPile} piece${usedByPile === 1 ? "" : "s"} that fit${usedByPile === 1 ? "s" : ""} your sets in this pile.` : "";
+    partRows = pool.filter(r => Core.rowType(r) === "part" && r.part_id && (parseInt(r.quantity, 10) || 0) > 0);
+    figRows = pool.filter(r => Core.rowType(r) === "fig" && (r.rb_fig || r.part_name) && (parseInt(r.quantity, 10) || 0) > 0);
+    if (!partRows.length && !figRows.length) {
+      status.textContent = `All your pieces fit the sets already in this pile (${expectedSets.map(st => st.info.set_num).join(", ")}). Scan more to find other sets.`;
+      return;
+    }
     // 2. The most promising part + colour combinations. One request each gives both how many sets
     //    have it (rarity) and which sets they are. Printed parts and unusual colours go first;
     //    plain bricks in common colours are in thousands of sets and say little.
@@ -2648,16 +2665,17 @@ async function suggestSets() {
     // A part or figure found in only a few sets settles it: those sets are always checked and come first.
     const decisive = new Map();                   // set_num -> {n, labels}
     for (const ev of evidence) if (ev.n <= SUGGEST.decisive) for (const sn of ev.sets) {
+      if (accepted.has(sn)) continue;
       const d = decisive.get(sn) || { n: 99, labels: [] };
       d.n = Math.min(d.n, ev.n); d.labels.push(ev.label); decisive.set(sn, d);
     }
-    const tally = Core.tallyCandidates(evidence);
+    const tally = Core.tallyCandidates(evidence).filter(t => !accepted.has(t.set_num));
     const top = [...decisive.keys()].slice(0, 12).map(sn => tally.find(t => t.set_num === sn) || { set_num: sn, score: 0, clues: [] });
     for (const t of tally) { if (top.length >= Math.max(SUGGEST.candidates, Math.min(12, decisive.size))) break; if (!top.some(x => x.set_num === t.set_num)) top.push(t); }
     renderLikely(top);                             // show the likely sets straight away, then refine them
     const results = [], skipped = [];
     // the database lists Rebrickable numbers only, so give each scanned part its Rebrickable number
-    const scoringInv = inventory.map(r => r.rb_part || !rbCache.resolve[String(r.part_id)] ? r : { ...r, rb_part: rbCache.resolve[String(r.part_id)] });
+    const scoringInv = pool;
     for (let i = 0; i < top.length; i++) {
       step(`Comparing the best matches (${i + 1} of ${top.length}: set ${top[i].set_num})…`, 0.75 + 0.25 * i / top.length);
       let st;
@@ -2670,7 +2688,8 @@ async function suggestSets() {
     const rank = x => !x.decisive ? 2 : x.decisive.n === 1 ? 0 : 1;   // only-in-this-set, then in-a-few-sets, then the rest
     results.sort((a, b) => rank(a) - rank(b) || b.score - a.score || (b.have / Math.max(1, b.need)) - (a.have / Math.max(1, a.need)));
     suggestions = results;
-    step(`Checked your ${todo.length} most unusual parts${combos.size > todo.length ? ` (of ${combos.size})` : ""}${figs.length ? ` and ${figs.length} minifigure${figs.length === 1 ? "" : "s"}` : ""}.${skipped.length ? ` Skipped ${skipped.length} set${skipped.length === 1 ? "" : "s"} Rebrickable didn't answer for (${skipped.slice(0, 3).map(x => x.split(" ")[0]).join(", ")}${skipped.length > 3 ? ", …" : ""}).` : ""}`, 1);
+    if (!top.length) { step(`No other sets found for your remaining pieces.${pileNote}`, 1); suggestions = []; renderSuggestions(); return; }
+    step(`Checked your ${todo.length} most unusual parts${combos.size > todo.length ? ` (of ${combos.size})` : ""}${figs.length ? ` and ${figs.length} minifigure${figs.length === 1 ? "" : "s"}` : ""}.${skipped.length ? ` Skipped ${skipped.length} set${skipped.length === 1 ? "" : "s"} Rebrickable didn't answer for (${skipped.slice(0, 3).map(x => x.split(" ")[0]).join(", ")}${skipped.length > 3 ? ", …" : ""}).` : ""}${pileNote}`, 1);
     renderSuggestions();
   } catch (ex) { err.textContent = ex.message; err.hidden = false; status.textContent = ""; }
   finally { btn.disabled = false; bar.hidden = true; rbPaced = false; rbNotice = null; saveCache(); }
