@@ -197,6 +197,10 @@ details.more select { max-width: 100%; }
 .btn.small { padding: 6px 10px; font-size: 13px; }
 .photo-count { font: 700 10px var(--mono); background: var(--mark); color: #000; border-radius: 999px; padding: 0 5px; margin-left: 3px; }
 .item.busy { opacity: 0.6; pointer-events: none; }
+.rare { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; padding: 8px 10px; border-radius: 8px; font-size: 13px;
+  background: color-mix(in srgb, var(--good) 14%, var(--surface)); }
+.rare.few { background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
+.rare b { font-weight: 800; }
 fieldset { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: grid; gap: 10px; margin: 0; }
 legend { font-weight: 700; padding: 0 4px; }
 .note b { color: var(--ink); font-weight: 700; }
@@ -1779,6 +1783,7 @@ function renderReview() {
           <button class="btn" type="button" data-k="skip" ${r.items.length ? "" : "disabled"}>${r.skip ? "Include" : "Skip"}</button>
         </div>
       </div>
+      ${rareFlag(r)}
       ${r.notes.length ? `<div class="note">${r.notes.map(esc).join(". ")}.</div>` : ""}
       ${r.blobs && r.blobs.length ? `<details class="more"><summary>More photos of this item</summary>
         <div class="row">
@@ -1791,6 +1796,7 @@ function renderReview() {
   }).join("");
   renderFigbar();
   if (review.length && !rbColors && !coloursTried && store.get("rbKey", "")) { coloursTried = true; ensureColours().then(renderReview, () => {}); }
+  checkRarity();
 }
 $("#review").addEventListener("change", e => {
   const el = e.target, row = el.closest(".item"); if (!row) return;
@@ -1809,6 +1815,87 @@ $("#review").addEventListener("click", e => {
   const el = e.target.closest("[data-k=skip]"); if (!el) return;
   const r = review.find(x => x.id === +el.closest(".item").dataset.id); r.skip = !r.skip; renderReview();
 });
+// ---------- rare parts: flag anything found in only a few sets while you scan ----------
+const RARE_AT = 3;
+let rarityBusy = false;
+function rarityKey(r) {                            // what to look up for a row, or null
+  const it = r.items[r.item]; if (!it || r.skip || r.error) return null;
+  const kind = r.kinds[r.item];
+  if (kind === "fig") return `fig|${it.id}`;
+  if (kind !== "part") return null;
+  const c = r.colorOpts[r.colorSel]; if (!c) return null;
+  return `part|${it.id}|${Core.normColor(c.name)}`;
+}
+async function rarityOf(r) {                       // {n, sets} or null, using the shared Rebrickable caches
+  const it = r.items[r.item], kind = r.kinds[r.item];
+  if (kind === "fig") {
+    const link = await linkFig({ part_id: it.id, part_name: it.name });
+    if (!link.sure) return null;
+    const sets = await figSets(link.figs[0]);
+    return { n: sets.length, sets, what: it.name };
+  }
+  const entry = r.entries[r.item], c = r.colorOpts[r.colorSel];
+  const row = { part_id: it.id, bricklink_id: blFromItem(it), rb_part: entry ? entry.part_num : "" };
+  if (!row.rb_part) await resolveAll([row]);
+  const num = row.rb_part || rbCache.resolve[String(it.id)];
+  const cid = rbColors ? Core.buildColorLookup(rbColors).get(Core.normColor(c.name)) : null;
+  if (!num || cid == null) return null;
+  const { n, sets } = await pcSetsCounted(num, cid);
+  return { n, sets, what: `${it.name} in ${c.name}` };
+}
+async function setInfo(sn) {
+  if (!setInfoSeen.has(sn)) { const d = await rbGet(`/sets/${encodeURIComponent(sn)}/`, {}, { missingOk: true }); if (d) setInfoSeen.set(sn, d); }
+  return setInfoSeen.get(sn) || { set_num: sn, name: sn };
+}
+async function checkRarity() {
+  if (rarityBusy || !store.get("rbKey", "")) return;
+  rarityBusy = true;
+  const wasPaced = rbPaced; rbPaced = true;
+  try {
+    await ensureColours();
+    for (;;) {
+      const r = review.find(x => { const k = rarityKey(x); return k && x.rareKey !== k; });
+      if (!r) break;
+      const k = rarityKey(r);
+      try {
+        const got = await rarityOf(r);
+        r.rare = null;
+        if (got && got.n >= 1 && got.n <= RARE_AT) {
+          const info = [];
+          for (const sn of got.sets.slice(0, RARE_AT)) info.push(await setInfo(sn));
+          r.rare = { ...got, info };
+        }
+      } catch { r.rare = null; }
+      r.rareKey = k;
+      saveCache();
+      if (r.rare) renderReview();
+    }
+  } finally { rbPaced = wasPaced; rarityBusy = false; }
+}
+function rareFlag(r) {
+  if (!r.rare || r.rareKey !== rarityKey(r)) return "";
+  const { n, info } = r.rare;
+  const names = info.map(st => `<b>${esc(st.name)}</b> <span class="mono">(${esc(st.set_num)})</span>`).join(", ");
+  const sn = info[0].set_num, inPile = expectedSets.some(st => st.info.set_num === sn);
+  return `<div class="rare ${n === 1 ? "" : "few"}">
+    <span>${n === 1 ? `Only in 1 set: ${names}` : `In only ${n} sets: ${names}`}</span>
+    ${n === 1 ? `<button class="btn small" type="button" data-rare="check" data-set="${esc(sn)}">Check my parts</button>
+      <button class="btn small" type="button" data-rare="add" data-set="${esc(sn)}" ${inPile ? "disabled" : ""}>${inPile ? "In this pile" : "Add to this pile"}</button>` : ""}
+  </div>`;
+}
+$("#review").addEventListener("click", async e => {
+  const b = e.target.closest("[data-rare]"); if (!b) return;
+  const num = b.dataset.set; b.disabled = true;
+  try {
+    await ensureColours();
+    const st = expectedSets.find(x => x.info.set_num === num) || await fetchSet(num);
+    if (b.dataset.rare === "add") {
+      if (!expectedSets.some(x => x.info.set_num === num)) { expectedSets.push(st); expectedChanged(); }
+      toast(`Added ${st.info.name} to the sets in this pile`);
+    } else { show("set"); runCheck([st]); $("#set-result").scrollIntoView({ behavior: "smooth", block: "start" }); }
+  } catch (ex) { toast(ex.message); b.disabled = false; }
+});
+
 // ---------- several photos of one item ----------
 async function photoBlob(file, max = 1024) {
   const img = await loadImage(file), k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
