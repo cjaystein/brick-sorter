@@ -365,6 +365,28 @@ python make_piles.py generate --out piles --count 4000
 It copes with one layer of overlapping items. Items buried under others
 can't be seen, so take the top layer off and photograph again.
 
+## Rebrickable's database (instant suggestions)
+
+Rebrickable publishes its whole catalogue as files, free to use
+(https://rebrickable.com/downloads/). `build_rb_index.py` downloads them and
+packs every set's parts list, every minifigure and their sets into
+`rb-index.bin.gz` (about 4 MB). With that file next to `brick-sorter.html`,
+the app works these out instantly instead of asking Rebrickable one question
+a second:
+
+- **Suggest sets**: every part checked, in about a second.
+- **Rare-part flags** while scanning.
+- **Name the figure**: every minifigure checked.
+- **Set checks** and **Sets in this pile**, even without a Rebrickable key
+  (part names and pictures in set checks still need the key).
+
+The website (GitHub Pages) has it already: a GitHub job rebuilds it every
+week (`.github/workflows/rb-index.yml`; run it by hand from the repository's
+**Actions** tab). On your computer, run `python build_rb_index.py` in the
+brick-sorter folder now and then; it needs only standard Python. The browser
+downloads it once and keeps it, fetching it again only when there's a newer
+one. Data © Rebrickable.
+
 ## How matching works
 
 Brickognize returns BrickLink part IDs; Rebrickable lists its own IDs plus the

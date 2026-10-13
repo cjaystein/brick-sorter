@@ -2,6 +2,7 @@
 bricklink_keys.json
 bricklink_cache.json
 .brick_sorter_cache.json
+rebrickable-data/
 inventory*.csv
 suggested_sets.csv
 crops/

@@ -420,6 +420,7 @@ details.setblock > summary { cursor: pointer; font-weight: 700; color: var(--acc
         </div>
         <button class="btn primary" type="button" id="suggest-go">Suggest sets</button>
       </div>
+      <span class="muted" id="rbx-state" style="font-size:13px"></span>
       <div class="progress" id="suggest-progress" hidden><i></i></div>
       <span class="muted" id="suggest-status" style="font-size:14px"></span>
       <div class="notice bad" id="suggest-error" hidden></div>
@@ -1060,7 +1061,7 @@ function show(view) {
   for (const b of document.querySelectorAll("header nav button")) b.setAttribute("aria-selected", String(b.dataset.view === view));
   for (const s of document.querySelectorAll(".view")) s.hidden = s.id !== "view-" + view;
   if (view === "inv") renderInventory();
-  if (view === "set") { $("#key-needed").hidden = !!store.get("rbKey", ""); renderExpected(); }
+  if (view === "set") { $("#key-needed").hidden = hasRb(); renderExpected(); }
   window.scrollTo({ top: 0 });
 }
 for (const b of document.querySelectorAll("header nav button")) b.addEventListener("click", () => show(b.dataset.view));
@@ -1086,7 +1087,7 @@ dlg.addEventListener("close", () => {
   store.set("blCur", $("#bl-cur").value.trim().toUpperCase().replace(/[^A-Z]/g, "").slice(0, 3));
   renderReview(); if (!$("#view-inv").hidden) renderInventory();
   if (th) document.documentElement.dataset.theme = th; else delete document.documentElement.dataset.theme;
-  $("#key-needed").hidden = !!store.get("rbKey", "");
+  $("#key-needed").hidden = hasRb();
   $("#expect-key").hidden = true;
   toast("Settings saved");
 });
@@ -1844,11 +1845,13 @@ async function rarityOf(r) {                       // {n, sets} or null, using t
   return { n, sets, what: `${it.name} in ${c.name}` };
 }
 async function setInfo(sn) {
+  if (RBX && RBX.setIdx.has(sn)) return rbxSetInfo(RBX.setIdx.get(sn));
   if (!setInfoSeen.has(sn)) { const d = await rbGet(`/sets/${encodeURIComponent(sn)}/`, {}, { missingOk: true }); if (d) setInfoSeen.set(sn, d); }
   return setInfoSeen.get(sn) || { set_num: sn, name: sn };
 }
 async function checkRarity() {
-  if (rarityBusy || !store.get("rbKey", "")) return;
+  if (rarityBusy) return;
+  if (!store.get("rbKey", "") && !(RBX || await loadIndex())) return;
   rarityBusy = true;
   const wasPaced = rbPaced; rbPaced = true;
   try {
@@ -2106,7 +2109,121 @@ async function rbGet(path, params = {}, opts = {}) {
   return out;
 }
 
+// =================== REBRICKABLE DATABASE (downloaded once) ===================
+// rb-index.bin.gz next to the page holds Rebrickable's whole catalogue, packed (see build_rb_index.py).
+// With it, suggestions, rare-part flags and naming figures are worked out here, instantly, instead of
+// asking Rebrickable one question a second. Without it, everything falls back to the API.
+let RBX = null, rbxLoading = null;
+function loadIndex() {
+  if (rbxLoading) return rbxLoading;
+  rbxLoading = (async () => {
+    if (!/^https?:$/.test(location.protocol)) return null;
+    let meta = null, saved = null;
+    try { const r = await fetch("rb-index.json", { cache: "no-store" }); if (r.ok) meta = await r.json(); } catch {}
+    try { saved = await idbGet("rbindex"); } catch {}
+    let gz = saved && saved.bytes && (!meta || saved.built === meta.built) ? saved.bytes : null;
+    if (!gz && meta) {
+      const r = await fetch("rb-index.bin.gz", { cache: "no-store" });
+      if (!r.ok) return null;
+      gz = new Uint8Array(await r.arrayBuffer());
+      try { await idbPut("rbindex", { built: meta.built, bytes: gz }); } catch {}
+    }
+    if (!gz) return null;
+    RBX = await parseIndex(gz);
+    renderIndexState();
+    return RBX;
+  })().catch(e => { console.warn("Rebrickable database not loaded", e); return null; });
+  return rbxLoading;
+}
+async function gunzip(bytes) {
+  if (bytes[0] === 0x52 && bytes[1] === 0x42 && bytes[2] === 0x49) return bytes;     // already unpacked ("RBIX")
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+async function parseIndex(gz) {
+  const raw = await gunzip(gz);
+  if (String.fromCharCode(raw[0], raw[1], raw[2], raw[3]) !== "RBIX") throw new Error("not a Brick Sorter index");
+  const hl = new DataView(raw.buffer, raw.byteOffset, raw.byteLength).getUint32(4, true);
+  const h = JSON.parse(new TextDecoder().decode(raw.subarray(8, 8 + hl)));
+  const T = { I: Uint32Array, H: Uint16Array, B: Uint8Array }, A = {};
+  let off = 8 + hl;
+  for (const [name, tc, len] of h.arrays) {
+    const n = len * T[tc].BYTES_PER_ELEMENT;
+    A[name] = new T[tc](raw.slice(off, off + n).buffer);        // copied, so it's aligned
+    off += n;
+  }
+  return { h, A, built: h.built, nSets: h.sets.length,
+    partIdx: new Map(h.parts.map((p, i) => [p.toLowerCase(), i])),
+    setIdx: new Map(h.sets.map((x, i) => [x[0], i])), figIdx: new Map(h.figs.map((x, i) => [x[0], i])) };
+}
+// Built on first use: which sets (and figures) have each part in each colour, and which sets have each figure.
+function rbxMaps() {
+  const x = RBX; if (x.pc) return x;
+  const { line_start: ls, line_part: lp, line_color: lc, line_qty: lq, fig_start: fs, fig_idx: fi } = x.A;
+  const nS = x.nSets, nF = x.h.figs.length;
+  x.figSets = Array.from({ length: nF }, () => []);
+  for (let s = 0; s < nS; s++) for (let k = fs[s]; k < fs[s + 1]; k++) { const a = x.figSets[fi[k]]; if (a[a.length - 1] !== s) a.push(s); }
+  const pc = new Map(), pcFig = new Map();
+  const add = (m, key, v) => { const a = m.get(key); if (!a) m.set(key, [v]); else if (a[a.length - 1] !== v) a.push(v); };
+  for (let o = 0; o < nS + nF; o++) for (let k = ls[o]; k < ls[o + 1]; k++) {
+    if (lq[k] & 32768) continue;                                  // spares don't count
+    const key = lp[k] * 65536 + lc[k];
+    if (o < nS) add(pc, key, o);
+    else { const f = o - nS; add(pcFig, key, f); for (const st of x.figSets[f]) add(pc, key, st); }
+  }
+  for (const [k, a] of pc) if (a.length > 1) { const u = [...new Set(a)]; if (u.length !== a.length) pc.set(k, u); }
+  x.pc = pc; x.pcFig = pcFig;
+  return x;
+}
+const rbxCid = cid => (cid < 0 ? 65535 : cid);
+function rbxPart(num) { return RBX ? RBX.partIdx.get(String(num || "").toLowerCase()) : undefined; }
+function rbxSetInfo(i) {
+  const st = RBX.h.sets[i];
+  return { set_num: st[0], name: st[1], year: st[2], theme: RBX.h.themes[st[3]] || "", num_parts: st[4],
+    set_img_url: st[5] === "" ? `https://cdn.rebrickable.com/media/sets/${st[0].toLowerCase()}.jpg` : st[5] === "-" ? null : st[5] };
+}
+function rbxPartSets(num, cid) {                       // set numbers with a part in a colour, or null if the part is unknown
+  const pi = rbxPart(num); if (pi == null) return null;
+  return (rbxMaps().pc.get(pi * 65536 + rbxCid(cid)) || []).map(i => RBX.h.sets[i][0]);
+}
+function rbxPartColours(num) {                         // {colour id: number of sets}
+  const pi = rbxPart(num), out = {}; if (pi == null) return out;
+  const x = rbxMaps();
+  for (const [id] of x.h.colors) { const a = x.pc.get(pi * 65536 + rbxCid(id)); if (a) out[id] = a.length; }
+  return out;
+}
+const colourName = id => { const c = RBX && RBX.h.colors.find(c => c[0] === id); return c ? c[1] : ""; };
+function rbxOwnerLines(o, mult = 1, keepSpares = true) {
+  const { line_start: ls, line_part: lp, line_color: lc, line_qty: lq } = RBX.A, out = [];
+  for (let k = ls[o]; k < ls[o + 1]; k++) {
+    const spare = !!(lq[k] & 32768); if (spare && !keepSpares) continue;
+    const cid = lc[k] === 65535 ? -1 : lc[k];
+    out.push({ part_num: RBX.h.parts[lp[k]], bl_ids: [], name: "", color_id: cid, color_name: colourName(cid), quantity: (lq[k] & 32767) * mult, img: "", spare });
+  }
+  return out;
+}
+// A set's parts and minifigures from the database, shaped like fetchSet's (without part names and pictures).
+function rbxSet(num) {
+  const i = RBX && RBX.setIdx.get(num); if (i == null) return null;
+  const nS = RBX.nSets, { fig_start: fs, fig_idx: fi, fig_qty: fq } = RBX.A;
+  const figs = [], figParts = [];
+  for (let k = fs[i]; k < fs[i + 1]; k++) {
+    const f = RBX.h.figs[fi[k]];
+    figs.push({ fig_num: f[0], name: f[1], quantity: fq[k], img: `https://cdn.rebrickable.com/media/sets/${f[0]}.jpg` });
+    figParts.push(...rbxOwnerLines(nS + fi[k], fq[k], false));
+  }
+  return { info: rbxSetInfo(i), lines: rbxOwnerLines(i), figParts, figs, local: true };
+}
+function rbxFigSets(fig) { const f = RBX && RBX.figIdx.get(fig); return f == null ? null : rbxMaps().figSets[f].map(i => RBX.h.sets[i][0]); }
+function renderIndexState() {
+  const el = $("#rbx-state"); if (!el) return;
+  el.textContent = RBX ? `Using Rebrickable's database from ${RBX.built} (${RBX.nSets.toLocaleString()} sets): suggestions and rare-part flags are instant.` : "";
+}
 async function ensureColours() {
+  if (!rbColors && !store.get("rbKey", "") && (RBX || await loadIndex())) {   // no key: colour names from the database
+    rbColors = RBX.h.colors.map(([id, name, rgb]) => ({ id, name, rgb, external_ids: {} }));
+    return;
+  }
   if (!rbColors) {
     rbColors = (await rbGet(`/colors/`)).map(c => ({ id: c.id, name: c.name, rgb: c.rgb, external_ids: { BrickLink: c.external_ids && c.external_ids.BrickLink } }));
     store.set("rbColors", rbColors);
@@ -2125,7 +2242,14 @@ function mergeParts(parts) {
   }
   return merged;
 }
+// Can sets be looked up at all: with the API key, or from the downloaded database.
+const hasRb = () => !!store.get("rbKey", "") || !!RBX;
 async function fetchSet(num) {
+  if (!store.get("rbKey", "") && RBX) {          // no key: the database has every set's parts (without part names and pictures)
+    const st = rbxSet(num);
+    if (st) return st;
+    throw new Error("That set isn't in Rebrickable's database. Try adding the version, e.g. 10696-1.");
+  }
   const enc = encodeURIComponent(num);
   const info = setInfoSeen.get(num) || await rbGet(`/sets/${enc}/`);
   const bricks = mergeParts(await rbGet(`/sets/${enc}/parts/`, { inc_part_details: 1, inc_minifig_parts: 0 }));
@@ -2186,7 +2310,8 @@ $("#expect-key-btn").addEventListener("click", openSettings);
 $("#expect-form").addEventListener("submit", async e => {
   e.preventDefault();
   const raw = $("#expect-num").value.trim(); if (!raw) return;
-  if (!store.get("rbKey", "")) { $("#expect-key").hidden = false; return; }
+  await loadIndex();
+  if (!hasRb()) { $("#expect-key").hidden = false; return; }
   const num = normSet(raw), err = $("#expect-error"), btn = $("#expect-add");
   if (expectedSets.some(st => st.info.set_num === num)) { toast(`${num} is already in the list`); return; }
   btn.disabled = true; btn.textContent = "Adding…"; err.hidden = true;
@@ -2232,7 +2357,8 @@ function runCheck(sets) {
 $("#set-form").addEventListener("submit", async e => {
   e.preventDefault();
   const raw = $("#set-num").value.trim(); if (!raw) return;
-  if (!store.get("rbKey", "")) { $("#key-needed").hidden = false; return; }
+  await loadIndex();
+  if (!hasRb()) { $("#key-needed").hidden = false; return; }
   const go = $("#set-go"), err = $("#set-error");
   go.disabled = true; go.textContent = "Checking…"; err.hidden = true;
   try {
@@ -2336,7 +2462,12 @@ function clueHint(r) {
 }
 // Rebrickable numbers for many Brickognize IDs at once; BrickLink-only numbers are looked up one by one.
 async function resolveAll(rows) {
-  const want = [...new Set(rows.filter(r => !r.rb_part).map(r => String(r.part_id)))].filter(id => !(id in rbCache.resolve));
+  let want = [...new Set(rows.filter(r => !r.rb_part).map(r => String(r.part_id)))].filter(id => !(id in rbCache.resolve));
+  if (RBX) {                                     // most Brickognize numbers are Rebrickable's too
+    for (const id of want) { const pi = rbxPart(id); if (pi != null) rbCache.resolve[id] = RBX.h.parts[pi]; }
+    want = want.filter(id => !(id in rbCache.resolve));
+    if (!store.get("rbKey", "")) return;         // BrickLink-only numbers need the API
+  }
   for (let i = 0; i < want.length; i += 100) {
     const chunk = want.slice(i, i + 100);
     const res = (await rbGet(`/parts/`, { part_nums: chunk.join(","), inc_part_details: 1, inc_color_details: 0 }, { missingOk: true })) || [];
@@ -2359,6 +2490,7 @@ async function resolveAll(rows) {
 // Sets with a part in a colour, and how many there are, in one request. Very common combinations
 // (more than a page of sets) only give their count, which is all that's needed for them.
 async function pcSetsCounted(num, cid) {
+  if (RBX) { const sets = rbxPartSets(num, cid); if (sets) return { n: sets.length, sets }; }
   const k = `${num}|${cid}`;
   rbCache.pcCount = rbCache.pcCount || {};
   if (!(k in rbCache.pcCount)) {
@@ -2379,12 +2511,14 @@ let suggestions = [];
 async function linkFig(row) {
   rbCache.figLink = rbCache.figLink || {};
   const key = String(row.part_id);
-  if (rbCache.figLink[key]) return rbCache.figLink[key];
+  if (rbCache.figLink[key] && !RBX) return rbCache.figLink[key];
   const full = (row.part_name || "").replace(/\([^)]*\)/g, " ").replace(/\s+/g, " ").trim();
   const main = full.split(/ - |,|\//)[0].trim();
   let out = { figs: [], sure: false };
   if (main.length >= 3) {
-    const res = (await rbGet(`/minifigs/`, { search: main }, { missingOk: true })) || [];
+    const low = main.toLowerCase();
+    const res = RBX ? RBX.h.figs.filter(f => f[1].toLowerCase().includes(low)).map(f => ({ set_num: f[0], name: f[1] }))
+      : ((await rbGet(`/minifigs/`, { search: main }, { missingOk: true })) || []);
     const scored = res.map(f => ({ f, sim: Core.nameSimilarity(full, f.name) })).sort((a, b) => b.sim - a.sim);
     const best = scored.length ? scored[0].sim : 0;
     if (best >= 0.4) {
@@ -2411,6 +2545,7 @@ async function resolvePart(row) {
   return num;
 }
 async function partColours(num) {                // {colour id: number of sets}
+  if (RBX && rbxPart(num) != null) return rbxPartColours(num);
   if (!rbCache.colors[num]) {
     const res = await rbGet(`/parts/${encodeURIComponent(num)}/colors/`, {}, { missingOk: true }) || [];
     rbCache.colors[num] = Object.fromEntries(res.map(c => [c.color_id, c.num_sets]));
@@ -2423,6 +2558,7 @@ async function pcSets(num, cid) {
   return rbCache.pcSets[k];
 }
 async function figSets(fig) {
+  if (RBX) { const sets = rbxFigSets(fig); if (sets) return sets; }
   if (!rbCache.figSets[fig]) rbCache.figSets[fig] = ((await rbGet(`/minifigs/${encodeURIComponent(fig)}/sets/`, {}, { missingOk: true })) || []).map(s => s.set_num);
   return rbCache.figSets[fig];
 }
@@ -2431,7 +2567,8 @@ async function suggestSets() {
   const status = $("#suggest-status"), bar = $("#suggest-progress"), err = $("#suggest-error"), btn = $("#suggest-go");
   const step = (text, frac) => { lastStep = text; status.textContent = text; bar.firstElementChild.style.width = `${Math.round(frac * 100)}%`; };
   err.hidden = true; $("#suggest-result").innerHTML = "";
-  if (!store.get("rbKey", "")) { $("#key-needed").hidden = false; return; }
+  await loadIndex();
+  if (!store.get("rbKey", "") && !RBX) { $("#key-needed").hidden = false; return; }
   const partRows = inventory.filter(r => Core.rowType(r) === "part" && r.part_id);
   const figRows = inventory.filter(r => Core.rowType(r) === "fig" && (r.rb_fig || r.part_name));
   if (!partRows.length && !figRows.length) { status.textContent = "Your inventory is empty. Scan some parts first."; return; }
@@ -2456,7 +2593,7 @@ async function suggestSets() {
       const k = `${num}|${cid}`;
       if (!combos.has(k)) combos.set(k, { num, cid, row: r, hint: clueHint(r) });
     }
-    const todo = [...combos.values()].sort((a, b) => b.hint - a.hint).slice(0, SUGGEST.maxClues);
+    const todo = [...combos.values()].sort((a, b) => b.hint - a.hint).slice(0, RBX ? Infinity : SUGGEST.maxClues);
     const clues = [], evidence = [], weights = new Map();
     for (let i = 0; i < todo.length; i++) {
       const d = todo[i];
@@ -2519,13 +2656,15 @@ async function suggestSets() {
     for (const t of tally) { if (top.length >= Math.max(SUGGEST.candidates, Math.min(12, decisive.size))) break; if (!top.some(x => x.set_num === t.set_num)) top.push(t); }
     renderLikely(top);                             // show the likely sets straight away, then refine them
     const results = [], skipped = [];
+    // the database lists Rebrickable numbers only, so give each scanned part its Rebrickable number
+    const scoringInv = inventory.map(r => r.rb_part || !rbCache.resolve[String(r.part_id)] ? r : { ...r, rb_part: rbCache.resolve[String(r.part_id)] });
     for (let i = 0; i < top.length; i++) {
       step(`Comparing the best matches (${i + 1} of ${top.length}: set ${top[i].set_num})…`, 0.75 + 0.25 * i / top.length);
       let st;
-      try { st = await fetchSet(top[i].set_num); }
+      try { st = (RBX && rbxSet(top[i].set_num)) || await fetchSet(top[i].set_num); }
       catch (ex) { skipped.push(`${top[i].set_num} (${ex.message})`); continue; }
       const sc = Core.scoreCandidate(checkLines(st.lines.concat(st.figParts)), st.figs.map(x => ({ ...x, set_num: st.info.set_num })),
-                                     inventory, lookup, weights, checkLines(st.lines));
+                                     scoringInv, lookup, weights, checkLines(st.lines));
       results.push({ st, ...sc, decisive: decisive.get(top[i].set_num) || null });
     }
     const rank = x => !x.decisive ? 2 : x.decisive.n === 1 ? 0 : 1;   // only-in-this-set, then in-a-few-sets, then the rest
@@ -2570,6 +2709,7 @@ $("#suggest-result").addEventListener("click", async e => {
   const s = suggestions[+b.closest(".sugg").dataset.i]; if (!s) return;
   b.disabled = true;
   try {
+    if (s.st.local && store.get("rbKey", "")) { try { await ensureColours(); s.st = await fetchSet(s.st.info.set_num); } catch {} }
     const st = s.st;
     if (b.dataset.act === "add") {
       if (!expectedSets.some(x => x.info.set_num === st.info.set_num)) { expectedSets.push(st); expectedChanged(); }
@@ -2621,7 +2761,8 @@ function renderSetPhoto(where) {
 document.addEventListener("click", async e => {
   const b = e.target.closest("[data-sethit]"); if (!b) return;
   const where = b.closest("[data-setphoto-result]").dataset.setphotoResult, it = setPhotoHits[where][+b.dataset.sethit]; if (!it) return;
-  if (!store.get("rbKey", "")) { openSettings(); toast("Add your Rebrickable key first"); return; }
+  await loadIndex();
+  if (!hasRb()) { openSettings(); toast("Add your Rebrickable key first"); return; }
   const num = normSet(blFromItem(it));
   b.disabled = true;
   try {
@@ -2679,7 +2820,24 @@ async function nameFigBrickLink(parts, step) {
 
 // Without BrickLink keys: Rebrickable. Start from the rarest ticked part, find the figures in the
 // sets that have it, and check each figure's parts list against all the ticked parts.
+function nameFigLocal(parts) {                     // every figure that has the parts, straight from the database
+  const x = rbxMaps(), lookup = Core.buildColorLookup(rbColors), tally = new Map();
+  parts.forEach((p, k) => {
+    const num = p.rb || rbCache.resolve[String(p.id)] || p.id, pi = rbxPart(num);
+    if (pi == null) return;
+    const cid = p.colour ? lookup.get(Core.normColor(p.colour)) : null;
+    const keys = cid != null ? [pi * 65536 + rbxCid(cid)] : x.h.colors.map(c => pi * 65536 + rbxCid(c[0]));
+    for (const key of keys) for (const f of x.pcFig.get(key) || []) { if (!tally.has(f)) tally.set(f, new Set()); tally.get(f).add(k); }
+  });
+  return [...tally.entries()].sort((a, b) => b[1].size - a[1].size).slice(0, 12).map(([f, hits]) => {
+    const fig = x.h.figs[f], o = x.nSets + f;
+    return { bl: "", rb: fig[0], name: fig[1], img: `https://cdn.rebrickable.com/media/sets/${fig[0]}.jpg`, hits, matched: hits.size,
+             total: x.A.line_start[o + 1] - x.A.line_start[o] };
+  });
+}
 async function nameFigRebrickable(parts, step) {
+  await ensureColours();
+  if (RBX || await loadIndex()) { step("Looking through every minifigure…"); await resolveAll(parts.map(p => ({ part_id: p.id, bricklink_id: p.no, rb_part: p.rb }))); return nameFigLocal(parts); }
   if (!store.get("rbKey", "")) throw new Error("Naming a figure needs your Rebrickable key (Settings), or BrickLink keys in the helper.");
   await ensureColours();
   const lookup = Core.buildColorLookup(rbColors);
@@ -2784,6 +2942,7 @@ $("#namefig-result").addEventListener("click", e => {
   toast(`Added ${c.name || no} to the list`);
 });
 blReady.then(on => { if (on) { renderReview(); if (!$("#view-inv").hidden) renderInventory(); } });
+setTimeout(() => loadIndex().then(x => { if (x && review.length) renderReview(); }), 1500);
 
 // init
 $("#inv-count").textContent = inventory.reduce((s, r) => s + r.quantity, 0);
