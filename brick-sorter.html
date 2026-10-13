@@ -1020,7 +1020,7 @@ const blReady = (async () => {
   return blOn;
 })();
 // The version of this page; version.json next to it says the newest one published.
-const APP_VERSION = "2026-10-13 22:28";
+const APP_VERSION = "2026-10-13 22:43";
 async function checkForUpdate() {
   if (!/^https?:$/.test(location.protocol) || APP_VERSION.startsWith("__")) return;
   try {
@@ -1546,6 +1546,16 @@ async function identifyOne(blobs, mode) {
   throw new Error("Brickognize is busy. Try again in a minute.");
 }
 
+// ---------- stickered parts ----------
+// BrickLink (and so Brickognize) lists a part with a set's sticker on it as its own part, named
+// "... (Sticker) - Set 60061". Rebrickable lists the plain part plus a sticker sheet instead.
+function stickerSets(name) {
+  const m = /\(Stickers?\)\s*-\s*Sets?\s+([0-9A-Za-z][0-9A-Za-z\-]*(?:\s*[\/,&]\s*[0-9A-Za-z][0-9A-Za-z\-]*)*)/i.exec(name || "");
+  return m ? m[1].split(/\s*[\/,&]\s*/).filter(Boolean).map(x => normSet(x)) : [];
+}
+// The plain mould under a BrickLink print or sticker number: 93606pb012L -> 93606.
+const baseMould = id => String(id || "").replace(/(pb|pat|px|ps)\d+[a-z]*$/i, "");
+
 // ---------- links for checking a match ----------
 // BrickLink colour numbers for common colours, used until Rebrickable's colour list is loaded.
 const BL_COLOURS = { white: 1, tan: 2, yellow: 3, orange: 4, red: 5, green: 6, blue: 7, brown: 8, lightgray: 9, darkgray: 10, black: 11,
@@ -1709,7 +1719,7 @@ function toReview(r) {
 function applyChoice(r, keepItem) {
   const cat = catalogue();
   const matches = r.items.map((it, i) => !cat ? null
-    : r.kinds[i] === "part" ? Core.findEntry(cat, [it.id, blFromItem(it)])
+    : r.kinds[i] === "part" ? Core.findEntry(cat, [it.id, blFromItem(it), stickerSets(it.name).length ? baseMould(it.id) : ""])
     : r.kinds[i] === "fig" ? Core.matchFig(cat, [it.id, blFromItem(it)], it.name) : null);
   r.entries = matches.map((m, i) => r.kinds[i] === "fig" ? (m && m.fig) || null : m);
   if (!keepItem) r.item = cat ? Core.chooseItem(r.items, r.entries) : 0;
@@ -1873,6 +1883,8 @@ function rarityKey(r) {                            // what to look up for a row,
 }
 async function rarityOf(r) {                       // {n, sets} or null, using the shared Rebrickable caches
   const it = r.items[r.item], kind = r.kinds[r.item];
+  const fromSticker = kind === "part" ? stickerSets(it.name) : [];
+  if (fromSticker.length) return { n: fromSticker.length, sets: fromSticker, what: it.name, sticker: true };
   if (kind === "fig") {
     const link = await linkFig({ part_id: it.id, part_name: it.name });
     if (!link.sure) return null;
@@ -1880,7 +1892,7 @@ async function rarityOf(r) {                       // {n, sets} or null, using t
     return { n: sets.length, sets, what: it.name };
   }
   const entry = r.entries[r.item], c = r.colorOpts[r.colorSel];
-  const row = { part_id: it.id, bricklink_id: blFromItem(it), rb_part: entry ? entry.part_num : "" };
+  const row = { part_id: it.id, part_name: it.name, bricklink_id: blFromItem(it), rb_part: entry ? entry.part_num : "" };
   if (!row.rb_part) await resolveAll([row]);
   const num = row.rb_part || rbCache.resolve[String(it.id)];
   const cid = rbColors ? Core.buildColorLookup(rbColors).get(Core.normColor(c.name)) : null;
@@ -1925,7 +1937,7 @@ function rareFlag(r) {
   const names = info.map(st => `<b>${esc(st.name)}</b> <span class="mono">(${esc(st.set_num)})</span>`).join(", ");
   const sn = info[0].set_num, inPile = expectedSets.some(st => st.info.set_num === sn);
   return `<div class="rare ${n === 1 ? "" : "few"}">
-    <span>${n === 1 ? `Only in 1 set: ${names}` : `In only ${n} sets: ${names}`}</span>
+    <span>${n === 1 ? `Only in 1 set: ${names}` : `In only ${n} sets: ${names}`}${r.rare.sticker ? " (its sticker was made for this set)" : ""}</span>
     ${n === 1 ? `<button class="btn small" type="button" data-rare="check" data-set="${esc(sn)}">Check my parts</button>
       <button class="btn small" type="button" data-rare="add" data-set="${esc(sn)}" ${inPile ? "disabled" : ""}>${inPile ? "In this pile" : "Add to this pile"}</button>` : ""}
   </div>`;
@@ -2510,6 +2522,14 @@ async function resolveAll(rows) {
   if (RBX) {                                     // most Brickognize numbers are Rebrickable's too
     for (const id of want) { const pi = rbxPart(id); if (pi != null) rbCache.resolve[id] = RBX.h.parts[pi]; }
     want = want.filter(id => !(id in rbCache.resolve));
+  }
+  // Stickered parts aren't separate parts on Rebrickable: they're the plain mould plus a sticker sheet.
+  for (const id of want) {
+    const row = rows.find(r => String(r.part_id) === id), base = baseMould(id);
+    if (base !== id && row && stickerSets(row.part_name).length) rbCache.resolve[id] = RBX && rbxPart(base) != null ? RBX.h.parts[rbxPart(base)] : base;
+  }
+  want = want.filter(id => !(id in rbCache.resolve));
+  if (RBX) {
     if (!store.get("rbKey", "")) return;         // BrickLink-only numbers need the API
   }
   for (let i = 0; i < want.length; i += 100) {
@@ -2656,6 +2676,10 @@ async function suggestSets() {
     }
     const todo = [...combos.values()].sort((a, b) => b.hint - a.hint).slice(0, RBX ? Infinity : SUGGEST.maxClues);
     const clues = [], evidence = [], weights = new Map();
+    for (const r of partRows) {
+      const sets = stickerSets(r.part_name).filter(sn => !RBX || RBX.setIdx.has(sn));
+      if (sets.length) evidence.push({ label: `${r.part_name.replace(/\s*\(Stickers?\).*$/i, "")} (sticker for ${sets.join(" / ")})`, weight: Core.rarity(sets.length), sets, n: sets.length });
+    }
     for (let i = 0; i < todo.length; i++) {
       const d = todo[i];
       step(`Checking your most unusual parts (${i + 1} of ${todo.length})…`, 0.05 + 0.6 * i / todo.length);
