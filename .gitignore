@@ -11,4 +11,3 @@ scan_review.html
 name_fig.html
 __pycache__/
 *.pt
-lego-detector.onnx
