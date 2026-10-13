@@ -189,6 +189,14 @@ dialog form { display: grid; gap: 12px; }
 .cand { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; gap: 10px 12px; align-items: center; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
 .cand img { width: 64px; height: 64px; object-fit: contain; border-radius: 6px; }
 .cand .links { grid-column: auto; }
+.cand .acts { display: grid; gap: 6px; }
+details.more { grid-column: 1 / -1; font-size: 13px; }
+details.more > summary { cursor: pointer; color: var(--accent); font-weight: 700; width: max-content; }
+details.more .row { margin-top: 8px; gap: 8px; }
+details.more select { max-width: 100%; }
+.btn.small { padding: 6px 10px; font-size: 13px; }
+.photo-count { font: 700 10px var(--mono); background: var(--mark); color: #000; border-radius: 999px; padding: 0 5px; margin-left: 3px; }
+.item.busy { opacity: 0.6; pointer-events: none; }
 fieldset { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: grid; gap: 10px; margin: 0; }
 legend { font-weight: 700; padding: 0 4px; }
 .note b { color: var(--ink); font-weight: 700; }
@@ -218,7 +226,7 @@ details.setblock > summary { cursor: pointer; font-weight: 700; color: var(--acc
   .item .side { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; }
   .note { grid-column: 1 / -1; }
   .pair img { width: 52px; height: 52px; }
-  .cand { grid-template-columns: 52px minmax(0, 1fr); } .cand img { width: 52px; height: 52px; } .cand > button { grid-column: 1 / -1; }
+  .cand { grid-template-columns: 52px minmax(0, 1fr); } .cand img { width: 52px; height: 52px; } .cand > button, .cand > .acts { grid-column: 1 / -1; } .cand > .acts { display: flex; flex-wrap: wrap; }
   .setcard { grid-template-columns: 1fr; }
   nav button { padding: 6px 10px; }
 }
@@ -259,7 +267,9 @@ details.setblock > summary { cursor: pointer; font-weight: 700; color: var(--acc
       <form class="row" id="expect-form">
         <input type="text" id="expect-num" placeholder="Set number, e.g. 10696" style="flex:1 1 180px" autocomplete="off">
         <button class="btn" type="submit" id="expect-add">Add set</button>
+        <label class="btn" style="cursor:pointer" title="Photograph a set's box, instructions or a built model">Identify from a photo<input type="file" accept="image/*" data-setphoto="expect" hidden></label>
       </form>
+      <div class="namefig" data-setphoto-result="expect" style="display:grid;gap:8px"></div>
       <div class="notice" id="expect-key" hidden>Adding sets needs a free Rebrickable API key. <button class="btn" type="button" id="expect-key-btn" style="margin-left:6px">Add key</button></div>
       <div class="notice bad" id="expect-error" hidden></div>
       <div class="setchips" id="expect-list"></div>
@@ -414,7 +424,9 @@ details.setblock > summary { cursor: pointer; font-weight: 700; color: var(--acc
     <form class="row" id="set-form">
       <input type="text" id="set-num" placeholder="Set number, e.g. 10696" style="flex:1 1 200px" autocomplete="off" inputmode="text">
       <button class="btn primary" type="submit" id="set-go">Check set</button>
+      <label class="btn" style="cursor:pointer" title="Photograph a set's box, instructions or a built model">Identify from a photo<input type="file" accept="image/*" data-setphoto="check" hidden></label>
     </form>
+    <div data-setphoto-result="check" style="display:grid;gap:8px"></div>
     <div class="notice" id="key-needed" hidden>Set checks need a free Rebrickable API key. <button class="btn" type="button" id="key-needed-btn" style="margin-left:6px">Add key</button></div>
     <div class="notice bad" id="set-error" hidden></div>
     <div id="set-result"></div>
@@ -1492,10 +1504,12 @@ function cropBlob(p, b) {
 }
 
 class NetError extends Error {}
-async function identifyOne(blob, mode) {
-  const fd = new FormData(); fd.append("query_image", blob, "item.jpg");
+// Identify one item from one or more photos of it (several views, e.g. front and back, in one request).
+async function identifyOne(blobs, mode) {
+  const fd = new FormData();
+  [].concat(blobs).forEach((b, i) => fd.append("query_image", b, `view${i + 1}.jpg`));
   await helperReady;
-  const url = BRICKOGNIZE + ENDPOINT[mode];
+  const url = BRICKOGNIZE + (ENDPOINT[mode] || mode);
   for (let attempt = 0; attempt < 3; attempt++) {
     let r;
     try { r = await fetch(url, { method: "POST", body: fd }); }
@@ -1632,8 +1646,8 @@ $("#identify").addEventListener("click", async () => {
     while (cursor < jobs.length && !netFail) {
       const k = cursor++, j = jobs[k];
       const { blob, url } = await cropBlob(j.p, j.b);
-      try { results[k] = { crop: url, photo: j.p.name, n: j.i + 1, mode, res: await identifyOne(blob, mode) }; }
-      catch (e) { if (e instanceof NetError) netFail = true; failed++; results[k] = { crop: url, photo: j.p.name, n: j.i + 1, mode, error: e.message }; }
+      try { results[k] = { crop: url, blob, photo: j.p.name, n: j.i + 1, mode, res: await identifyOne(blob, mode) }; }
+      catch (e) { if (e instanceof NetError) netFail = true; failed++; results[k] = { crop: url, blob, photo: j.p.name, n: j.i + 1, mode, error: e.message }; }
       done++; setProgress();
     }
   }
@@ -1659,7 +1673,8 @@ function toReview(r) {
   const items = (r.res && r.res.items) || [], colors = (r.res && r.res.colors) || [];
   const rv = { id: ++reviewSeq, crop: r.crop, photo: r.photo, n: r.n, mode: r.mode, error: r.error || (items.length ? "" : "No match found"),
     items, colors, item: 0, kinds: items.map(it => kindOf(it, r.mode)), colorOpts: [], colorSel: -1, figOpts: [], figSel: -1,
-    notes: [], entries: [], figMatch: null, qty: 1, skip: !items.length, touched: false, figPart: false, rbFig: "" };
+    notes: [], entries: [], figMatch: null, qty: 1, skip: !items.length, touched: false, figPart: false, rbFig: "",
+    blobs: r.blobs || (r.blob ? [r.blob] : []) };
   applyChoice(rv, false);
   const top = items[rv.item];
   rv.figPart = !!top && rv.kinds[rv.item] === "part" && looksLikeFigPart(top);
@@ -1747,9 +1762,9 @@ function renderReview() {
         ${kind === "part" ? `<label class="figpick"><input type="checkbox" data-k="figpart" ${r.figPart ? "checked" : ""}> Minifigure part</label>` : ""}
       </div>`;
     }
-    return `<div class="item ${r.skip ? "skip" : ""}" data-id="${r.id}">
+    return `<div class="item ${r.skip ? "skip" : ""} ${r.busy ? "busy" : ""}" data-id="${r.id}">
       <div class="pair">
-        <figure><img src="${r.crop}" alt="Item ${r.n} from ${esc(r.photo)}"><figcaption>Yours</figcaption></figure>
+        <figure><img src="${r.crop}" alt="Item ${r.n} from ${esc(r.photo)}"><figcaption>Yours${r.blobs && r.blobs.length > 1 ? `<span class="photo-count">×${r.blobs.length}</span>` : ""}</figcaption></figure>
         ${it && it.img_url ? `<figure><img class="ref" src="${esc(it.img_url)}" alt="Reference picture of ${esc(it.name)}" loading="lazy"><figcaption>Match</figcaption></figure>` : ""}
       </div>
       <div class="fields">
@@ -1765,6 +1780,13 @@ function renderReview() {
         </div>
       </div>
       ${r.notes.length ? `<div class="note">${r.notes.map(esc).join(". ")}.</div>` : ""}
+      ${r.blobs && r.blobs.length ? `<details class="more"><summary>More photos of this item</summary>
+        <div class="row">
+          <label class="btn small" style="cursor:pointer">Add another photo<input type="file" accept="image/*" multiple data-k="addphoto" hidden></label>
+          ${review.length > 1 ? `<select data-k="merge" aria-label="Same item as another in the list"><option value="">Same item as…</option>${review.filter(o => o !== r && o.blobs && o.blobs.length).map(o => `<option value="${o.id}">#${review.indexOf(o) + 1} · ${esc(o.items[o.item] ? `${o.items[o.item].id} ${o.items[o.item].name}` : "not recognised")}</option>`).join("")}</select>` : ""}
+        </div>
+        <div class="muted" style="margin-top:6px">Brickognize looks at all the photos of an item together, e.g. the front and back of a torso. ${r.blobs.length > 1 ? `Using ${r.blobs.length} photos.` : ""}</div>
+      </details>` : ""}
     </div>`;
   }).join("");
   renderFigbar();
@@ -1773,6 +1795,8 @@ function renderReview() {
 $("#review").addEventListener("change", e => {
   const el = e.target, row = el.closest(".item"); if (!row) return;
   const r = review.find(x => x.id === +row.dataset.id);
+  if (el.dataset.k === "addphoto") { addPhotosTo(r, [...el.files]); el.value = ""; return; }
+  if (el.dataset.k === "merge") { const t = review.find(x => x.id === +el.value); if (t) mergeInto(t, r); return; }
   if (el.dataset.k === "item") { r.item = +el.value; r.touched = true; applyChoice(r, true); }
   if (el.dataset.k === "color") { r.colorSel = +el.value; r.touched = true; }
   if (el.dataset.k === "fig") { r.figSel = +el.value; r.touched = true; }
@@ -1785,6 +1809,35 @@ $("#review").addEventListener("click", e => {
   const el = e.target.closest("[data-k=skip]"); if (!el) return;
   const r = review.find(x => x.id === +el.closest(".item").dataset.id); r.skip = !r.skip; renderReview();
 });
+// ---------- several photos of one item ----------
+async function photoBlob(file, max = 1024) {
+  const img = await loadImage(file), k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+  const c = document.createElement("canvas"); c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+  c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+  return new Promise(res => c.toBlob(res, "image/jpeg", 0.9));
+}
+async function reidentify(r) {
+  r.busy = true; renderReview();
+  try {
+    const res = await identifyOne(r.blobs, r.mode);
+    const fresh = toReview({ crop: r.crop, blobs: r.blobs, photo: r.photo, n: r.n, mode: r.mode, res });
+    Object.assign(r, fresh, { id: r.id, qty: r.qty, busy: false });
+    r.notes.unshift(`Identified from ${r.blobs.length} photos together`);
+  } catch (ex) { r.busy = false; toast(`Couldn't identify it again: ${ex.message}`); }
+  renderReview();
+}
+async function addPhotosTo(r, files) {
+  if (!files.length) return;
+  for (const f of files) { try { r.blobs.push(await photoBlob(f)); } catch { toast(`Couldn't read ${f.name}`); } }
+  await reidentify(r);
+}
+async function mergeInto(target, r) {             // two rows are the same item: identify once from both photos
+  target.blobs.push(...r.blobs);
+  review.splice(review.indexOf(r), 1);
+  await reidentify(target);
+  toast("Combined into one item");
+}
+
 $("#discard-review").addEventListener("click", () => { review = []; figCands = []; renderReview(); });
 $("#add-all").addEventListener("click", () => {
   let parts = 0, figs = 0;
@@ -2226,6 +2279,27 @@ let rbCache = store.get("rbCache", null) || { resolve: {}, colors: {}, pcSets: {
 function saveCache() { if (!store.set("rbCache", rbCache)) { rbCache.pcSets = {}; rbCache.figSets = {}; rbCache.setFigs = {}; rbCache.figParts = {}; store.set("rbCache", rbCache); } }
 let suggestions = [];
 
+// Rebrickable figure(s) for a minifigure Brickognize named (BrickLink and Rebrickable number figures
+// differently). Searches by the figure's main name and keeps the closest names.
+async function linkFig(row) {
+  rbCache.figLink = rbCache.figLink || {};
+  const key = String(row.part_id);
+  if (rbCache.figLink[key]) return rbCache.figLink[key];
+  const full = (row.part_name || "").replace(/\([^)]*\)/g, " ").replace(/\s+/g, " ").trim();
+  const main = full.split(/ - |,|\//)[0].trim();
+  let out = { figs: [], sure: false };
+  if (main.length >= 3) {
+    const res = (await rbGet(`/minifigs/`, { search: main }, { missingOk: true })) || [];
+    const scored = res.map(f => ({ f, sim: Core.nameSimilarity(full, f.name) })).sort((a, b) => b.sim - a.sim);
+    const best = scored.length ? scored[0].sim : 0;
+    if (best >= 0.4) {
+      const close = scored.filter(x => x.sim >= best - 0.08).slice(0, 2);
+      out = { figs: close.map(x => x.f.set_num), sure: close.length === 1 && best >= Core.FIG_SURE_AT, sim: best };
+    }
+  }
+  rbCache.figLink[key] = out;
+  return out;
+}
 // Rebrickable part number for a Brickognize ID (usually the same, sometimes a BrickLink-only number).
 async function resolvePart(row) {
   if (row.rb_part) return row.rb_part;
@@ -2264,7 +2338,7 @@ async function suggestSets() {
   err.hidden = true; $("#suggest-result").innerHTML = "";
   if (!store.get("rbKey", "")) { $("#key-needed").hidden = false; return; }
   const partRows = inventory.filter(r => Core.rowType(r) === "part" && r.part_id);
-  const figRows = inventory.filter(r => Core.rowType(r) === "fig" && r.rb_fig);
+  const figRows = inventory.filter(r => Core.rowType(r) === "fig" && (r.rb_fig || r.part_name));
   if (!partRows.length && !figRows.length) { status.textContent = "Your inventory is empty. Scan some parts first."; return; }
   btn.disabled = true; bar.hidden = false; rbPaced = true;
   let lastStep = "";
@@ -2301,13 +2375,27 @@ async function suggestSets() {
       if (n <= SUGGEST.maxCommon && sets.length) evidence.push({ label: clue.label, weight: clue.weight, sets });
       if (i % 10 === 9) saveCache();
     }
-    const figs = [...new Set(figRows.map(r => r.rb_fig))];
-    for (const fig of figs) {
-      const sets = await figSets(fig), w = Core.rarity(sets.length);
-      const name = (figRows.find(r => r.rb_fig === fig) || {}).part_name || fig;
-      evidence.push({ label: `Minifigure ${name}`, weight: w, sets });
-      weights.set(`fig|${fig.toLowerCase()}`, { weight: w, label: `Minifigure ${name}` });
+    // Minifigures: usually in only a few sets, so the strongest clues. Ones not yet linked to a
+    // Rebrickable figure are linked by name first.
+    const figList = [], seenFig = new Set();
+    for (const r of figRows) { const k = r.rb_fig || `bl:${r.part_id}`; if (!seenFig.has(k)) { seenFig.add(k); figList.push(r); } }
+    const figs = figList.slice(0, 30);
+    let linked = 0;
+    for (let i = 0; i < figs.length; i++) {
+      const r = figs[i];
+      step(`Looking up your minifigures (${i + 1} of ${figs.length})…`, 0.65 + 0.1 * i / figs.length);
+      const link = r.rb_fig ? { figs: [r.rb_fig], sure: true } : await linkFig(r);
+      if (!link.figs.length) continue;
+      if (!r.rb_fig && link.sure) { r.rb_fig = link.figs[0]; linked++; }
+      const sets = [];
+      for (const f of link.figs) for (const x of await figSets(f)) if (!sets.includes(x)) sets.push(x);
+      if (!sets.length) continue;
+      const w = Core.rarity(sets.length) * (link.sure ? 1 : 0.6);
+      const label = `Minifigure ${r.part_name || link.figs[0]}`;
+      evidence.push({ label, weight: w, sets });
+      for (const f of link.figs) weights.set(`fig|${f.toLowerCase()}`, { weight: w, label });
     }
+    if (linked) saveInventory();
     saveCache();
     if (!evidence.length) {
       status.textContent = "None of your parts or minifigures narrowed it down: they're either very common or Rebrickable doesn't know them. Scan more parts, especially unusual or printed ones, and try again.";
@@ -2376,6 +2464,62 @@ $("#suggest-result").addEventListener("click", async e => {
       $("#set-result").scrollIntoView({ behavior: "smooth", block: "start" });
     }
   } catch (ex) { $("#suggest-error").textContent = ex.message; $("#suggest-error").hidden = false; }
+  finally { b.disabled = false; }
+});
+
+// =================== IDENTIFY A SET FROM A PHOTO ===================
+// Brickognize's set recogniser needs the whole set: its box, the instructions cover or a built model.
+let setPhotoHits = { expect: [], check: [] };
+document.addEventListener("change", async e => {
+  const el = e.target.closest("[data-setphoto]"); if (!el || !el.files.length) return;
+  const where = el.dataset.setphoto, out = document.querySelector(`[data-setphoto-result="${where}"]`), file = el.files[0];
+  el.value = "";
+  out.innerHTML = `<span class="muted" style="font-size:14px">Identifying the set…</span>`;
+  try {
+    const res = await identifyOne(await photoBlob(file, 1280), "/predict/sets/");
+    setPhotoHits[where] = (res.items || []).filter(it => (it.type || "set") === "set").slice(0, 3);
+    renderSetPhoto(where);
+  } catch (ex) {
+    out.innerHTML = `<div class="notice bad">${esc(ex instanceof NetError ? "Couldn't reach Brickognize. Check your connection." : ex.message)}</div>`;
+  }
+});
+function renderSetPhoto(where) {
+  const out = document.querySelector(`[data-setphoto-result="${where}"]`), hits = setPhotoHits[where];
+  if (!hits.length) { out.innerHTML = `<div class="notice">No set recognised. This works with the whole set in view: its box, the instructions cover, or the built model. For loose parts, scan them and use <b>Suggest sets</b>.</div>`; return; }
+  out.innerHTML = hits.map((it, i) => {
+    const num = normSet(blFromItem(it)), inPile = expectedSets.some(st => st.info.set_num === num);
+    return `<div class="cand">
+      ${it.img_url ? `<img src="${esc(it.img_url)}" alt="" loading="lazy">` : "<span></span>"}
+      <div style="display:grid;gap:4px;min-width:0">
+        <strong style="overflow-wrap:anywhere">${esc(it.name)}</strong>
+        <span class="muted mono" style="font-size:12px">${esc(num)} · ${Math.round((it.score || 0) * 100)}% sure</span>
+        <div class="links">${ext(blUrl("set", blFromItem(it)), "BrickLink", "Open on BrickLink")}${ext(rbUrl("set", num), "Rebrickable", "Open on Rebrickable")}</div>
+      </div>
+      <div class="acts">
+        <button class="btn small" type="button" data-sethit="${i}" data-act="check">Check my parts</button>
+        <button class="btn small" type="button" data-sethit="${i}" data-act="add" ${inPile ? "disabled" : ""}>${inPile ? "In this pile" : "Add to this pile"}</button>
+      </div>
+    </div>`;
+  }).join("");
+}
+document.addEventListener("click", async e => {
+  const b = e.target.closest("[data-sethit]"); if (!b) return;
+  const where = b.closest("[data-setphoto-result]").dataset.setphotoResult, it = setPhotoHits[where][+b.dataset.sethit]; if (!it) return;
+  if (!store.get("rbKey", "")) { openSettings(); toast("Add your Rebrickable key first"); return; }
+  const num = normSet(blFromItem(it));
+  b.disabled = true;
+  try {
+    await ensureColours();
+    const st = expectedSets.find(x => x.info.set_num === num) || await fetchSet(num);
+    if (b.dataset.act === "add") {
+      if (!expectedSets.some(x => x.info.set_num === num)) { expectedSets.push(st); expectedChanged(); }
+      toast(`Added ${st.info.name} to the sets in this pile`);
+      renderSetPhoto(where);
+    } else {
+      show("set"); runCheck([st]);
+      $("#set-result").scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  } catch (ex) { toast(ex.message); }
   finally { b.disabled = false; }
 });
 
