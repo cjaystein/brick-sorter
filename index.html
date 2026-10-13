@@ -463,8 +463,13 @@ details.setblock > summary { cursor: pointer; font-weight: 700; color: var(--acc
       <select id="theme"><option value="">Match device</option><option value="light">Light</option><option value="dark">Dark</option></select>
     </label>
     <div class="row"><button class="btn primary" value="save">Save</button><button class="btn" value="cancel" formnovalidate>Cancel</button></div>
+    <p class="muted" style="margin:0;font-size:12px" id="app-version"></p>
   </form>
 </dialog>
+<div class="notice" id="update-bar" hidden style="position:fixed;left:12px;right:12px;bottom:12px;z-index:50;display:flex;gap:10px;align-items:center;justify-content:space-between;box-shadow:0 6px 24px rgba(0,0,0,.25)">
+  <span>A newer version of Brick Sorter is available.</span>
+  <button class="btn primary small" type="button" id="update-go">Reload</button>
+</div>
 
 <div class="toast" id="toast" hidden role="status"></div>
 
@@ -1014,6 +1019,17 @@ const blReady = (async () => {
   } catch {}
   return blOn;
 })();
+// The version of this page; version.json next to it says the newest one published.
+const APP_VERSION = "2026-10-13 22:28";
+async function checkForUpdate() {
+  if (!/^https?:$/.test(location.protocol) || APP_VERSION.startsWith("__")) return;
+  try {
+    const r = await fetch(`version.json?t=${Date.now()}`, { cache: "no-store" });
+    if (!r.ok) return;
+    const v = (await r.json()).version;
+    if (v && v !== APP_VERSION) $("#update-bar").hidden = false;
+  } catch {}
+}
 const HELPER_TIP = "Open the app through the local helper instead: run python serve.py in the brick-sorter folder (see the README).";
 const FIELDS = ["type", "part_id", "part_name", "color_name", "color_id", "quantity", "bricklink_id", "rb_part", "rb_fig", "img_url"];
 
@@ -1071,6 +1087,7 @@ for (const b of document.querySelectorAll("header nav button")) b.addEventListen
 // ---------- settings ----------
 const dlg = $("#settings");
 function openSettings() {
+  $("#app-version").textContent = APP_VERSION.startsWith("__") ? "" : `App version ${APP_VERSION}`;
   $("#rb-key").value = store.get("rbKey", ""); $("#theme").value = store.get("theme", "");
   $("#bl-cond").value = store.get("blCond", "U"); $("#bl-guide").value = store.get("blGuide", "sold");
   $("#bl-cur").value = store.get("blCur", ""); $("#bl-cur").placeholder = blDefaultCur || "AUD";
@@ -2989,6 +3006,9 @@ $("#namefig-result").addEventListener("click", e => {
 });
 blReady.then(on => { if (on) { renderReview(); if (!$("#view-inv").hidden) renderInventory(); } });
 setTimeout(() => loadIndex().then(x => { if (x && review.length) renderReview(); }), 1500);
+$("#update-go").addEventListener("click", () => location.reload());
+checkForUpdate();
+document.addEventListener("visibilitychange", () => { if (!document.hidden) checkForUpdate(); });   // e.g. reopening from the Home Screen
 
 // init
 $("#inv-count").textContent = inventory.reduce((s, r) => s + r.quantity, 0);
