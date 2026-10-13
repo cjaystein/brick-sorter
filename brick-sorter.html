@@ -2230,7 +2230,8 @@ $("#set-result").addEventListener("click", e => {
 });
 
 // =================== SUGGEST SETS ===================
-const SUGGEST = { maxClues: 40, maxCommon: 2000, candidates: 8 };
+const SUGGEST = { maxClues: 40, maxCommon: 2000, candidates: 8, decisive: 3 };
+const onlyIn = n => n === 1 ? " (only in 1 set)" : n <= 3 ? ` (only in ${n} sets)` : "";
 const setInfoSeen = new Map();             // set details that came with other answers, so they needn't be asked for again
 const COMMON_COLOURS = new Set(["Black", "White", "Light Bluish Gray", "Dark Bluish Gray", "Red", "Blue", "Yellow", "Tan",
   "Reddish Brown", "Light Gray", "Dark Gray", "Green", "Orange", "Dark Tan"].map(Core.normColor));
@@ -2242,6 +2243,8 @@ function clueHint(r) {
   if (/minifig|torso|legs|hips|head|hair|helmet|hat\b|cape|accessor/.test(name)) h += 1;
   if (!COMMON_COLOURS.has(Core.normColor(r.color_name))) h += 2;
   if (/^\d{4}$/.test(id)) h -= 1;               // short plain numbers: the classic bricks and plates
+  const num = r.rb_part || (rbCache.resolve || {})[String(r.part_id)], span = num != null ? (rbCache.years || {})[num] : undefined;
+  if (span != null) h += span <= 1 ? 3 : span <= 3 ? 1.5 : span >= 15 ? -1 : 0;   // made for only a year or two: probably rare
   return h + Math.min(1, (parseInt(r.quantity, 10) || 1) / 20);
 }
 // Rebrickable numbers for many Brickognize IDs at once; BrickLink-only numbers are looked up one by one.
@@ -2249,9 +2252,14 @@ async function resolveAll(rows) {
   const want = [...new Set(rows.filter(r => !r.rb_part).map(r => String(r.part_id)))].filter(id => !(id in rbCache.resolve));
   for (let i = 0; i < want.length; i += 100) {
     const chunk = want.slice(i, i + 100);
-    const res = (await rbGet(`/parts/`, { part_nums: chunk.join(","), inc_color_details: 0 }, { missingOk: true })) || [];
-    const byLower = new Map(res.map(p => [String(p.part_num).toLowerCase(), p.part_num]));
-    for (const id of chunk) if (byLower.has(id.toLowerCase())) rbCache.resolve[id] = byLower.get(id.toLowerCase());
+    const res = (await rbGet(`/parts/`, { part_nums: chunk.join(","), inc_part_details: 1, inc_color_details: 0 }, { missingOk: true })) || [];
+    const byLower = new Map(res.map(p => [String(p.part_num).toLowerCase(), p]));
+    rbCache.years = rbCache.years || {};
+    for (const id of chunk) {
+      const p = byLower.get(id.toLowerCase()); if (!p) continue;
+      rbCache.resolve[id] = p.part_num;
+      if (p.year_from && p.year_to) rbCache.years[p.part_num] = p.year_to - p.year_from;
+    }
   }
   const rest = want.filter(id => !(id in rbCache.resolve));
   for (let i = 0; i < rest.length; i++) {
@@ -2367,12 +2375,23 @@ async function suggestSets() {
       const d = todo[i];
       step(`Checking your most unusual parts (${i + 1} of ${todo.length})…`, 0.05 + 0.6 * i / todo.length);
       const { n, sets } = await pcSetsCounted(d.num, d.cid);
-      if (!n) continue;                            // never made in that colour: probably a wrong colour guess
       const c = rbColors.find(x => x.id === d.cid);
-      const clue = { num: d.num, cid: d.cid, n, weight: Core.rarity(n), label: `${d.row.part_name || d.num} in ${c ? c.name : d.cid}` };
+      if (!n) {
+        // Never made in that colour: probably a wrong colour guess. If the part itself is rare in any
+        // colour, it's still a strong clue.
+        const cols = await partColours(d.num), total = Object.values(cols).reduce((a, b) => a + b, 0);
+        if (total && total <= 5) {
+          const any = [];
+          for (const cid of Object.keys(cols)) for (const x of (await pcSetsCounted(d.num, +cid)).sets) if (!any.includes(x)) any.push(x);
+          const label = `${d.row.part_name || d.num}${onlyIn(any.length)} (any colour: check its colour)`;
+          if (any.length) evidence.push({ label, weight: Core.rarity(any.length) * 0.8, sets: any, n: any.length });
+        }
+        continue;
+      }
+      const clue = { num: d.num, cid: d.cid, n, weight: Core.rarity(n), label: `${d.row.part_name || d.num} in ${c ? c.name : d.cid}${onlyIn(n)}` };
       clues.push(clue);
-      weights.set(`${d.num.toLowerCase()}|${d.cid}`, { weight: clue.weight, label: clue.label });
-      if (n <= SUGGEST.maxCommon && sets.length) evidence.push({ label: clue.label, weight: clue.weight, sets });
+      weights.set(`${d.num.toLowerCase()}|${d.cid}`, { weight: clue.weight, label: clue.label, n });
+      if (n <= SUGGEST.maxCommon && sets.length) evidence.push({ label: clue.label, weight: clue.weight, sets, n });
       if (i % 10 === 9) saveCache();
     }
     // Minifigures: usually in only a few sets, so the strongest clues. Ones not yet linked to a
@@ -2391,9 +2410,9 @@ async function suggestSets() {
       for (const f of link.figs) for (const x of await figSets(f)) if (!sets.includes(x)) sets.push(x);
       if (!sets.length) continue;
       const w = Core.rarity(sets.length) * (link.sure ? 1 : 0.6);
-      const label = `Minifigure ${r.part_name || link.figs[0]}`;
-      evidence.push({ label, weight: w, sets });
-      for (const f of link.figs) weights.set(`fig|${f.toLowerCase()}`, { weight: w, label });
+      const label = `Minifigure ${r.part_name || link.figs[0]}${link.sure ? onlyIn(sets.length) : ""}`;
+      evidence.push({ label, weight: w, sets, n: link.sure ? sets.length : 99 });
+      for (const f of link.figs) weights.set(`fig|${f.toLowerCase()}`, { weight: w, label, n: link.sure ? sets.length : 99 });
     }
     if (linked) saveInventory();
     saveCache();
@@ -2402,7 +2421,15 @@ async function suggestSets() {
       return;
     }
     // 3. Check the leading candidates against their full parts lists
-    const top = Core.tallyCandidates(evidence).slice(0, SUGGEST.candidates);
+    // A part or figure found in only a few sets settles it: those sets are always checked and come first.
+    const decisive = new Map();                   // set_num -> {n, labels}
+    for (const ev of evidence) if (ev.n <= SUGGEST.decisive) for (const sn of ev.sets) {
+      const d = decisive.get(sn) || { n: 99, labels: [] };
+      d.n = Math.min(d.n, ev.n); d.labels.push(ev.label); decisive.set(sn, d);
+    }
+    const tally = Core.tallyCandidates(evidence);
+    const top = [...decisive.keys()].slice(0, 12).map(sn => tally.find(t => t.set_num === sn) || { set_num: sn, score: 0, clues: [] });
+    for (const t of tally) { if (top.length >= Math.max(SUGGEST.candidates, Math.min(12, decisive.size))) break; if (!top.some(x => x.set_num === t.set_num)) top.push(t); }
     renderLikely(top);                             // show the likely sets straight away, then refine them
     const results = [], skipped = [];
     for (let i = 0; i < top.length; i++) {
@@ -2412,11 +2439,12 @@ async function suggestSets() {
       catch (ex) { skipped.push(`${top[i].set_num} (${ex.message})`); continue; }
       const sc = Core.scoreCandidate(checkLines(st.lines.concat(st.figParts)), st.figs.map(x => ({ ...x, set_num: st.info.set_num })),
                                      inventory, lookup, weights, checkLines(st.lines));
-      results.push({ st, ...sc });
+      results.push({ st, ...sc, decisive: decisive.get(top[i].set_num) || null });
     }
-    results.sort((a, b) => b.score - a.score || (b.have / Math.max(1, b.need)) - (a.have / Math.max(1, a.need)));
+    const rank = x => !x.decisive ? 2 : x.decisive.n === 1 ? 0 : 1;   // only-in-this-set, then in-a-few-sets, then the rest
+    results.sort((a, b) => rank(a) - rank(b) || b.score - a.score || (b.have / Math.max(1, b.need)) - (a.have / Math.max(1, a.need)));
     suggestions = results;
-    step(`Checked your ${todo.length} most unusual parts${figs.length ? ` and ${figs.length} minifigure${figs.length === 1 ? "" : "s"}` : ""}.${skipped.length ? ` Skipped ${skipped.length} set${skipped.length === 1 ? "" : "s"} Rebrickable didn't answer for: ${skipped.join("; ")}.` : ""}`, 1);
+    step(`Checked your ${todo.length} most unusual parts${combos.size > todo.length ? ` (of ${combos.size})` : ""}${figs.length ? ` and ${figs.length} minifigure${figs.length === 1 ? "" : "s"}` : ""}.${skipped.length ? ` Skipped ${skipped.length} set${skipped.length === 1 ? "" : "s"} Rebrickable didn't answer for (${skipped.slice(0, 3).map(x => x.split(" ")[0]).join(", ")}${skipped.length > 3 ? ", …" : ""}).` : ""}`, 1);
     renderSuggestions();
   } catch (ex) { err.textContent = ex.message; err.hidden = false; status.textContent = ""; }
   finally { btn.disabled = false; bar.hidden = true; rbPaced = false; rbNotice = null; saveCache(); }
@@ -2438,6 +2466,7 @@ function renderSuggestions() {
       <div style="display:grid;gap:6px;min-width:0">
         <div><span class="rank">#${i + 1} · ${esc(s.st.info.set_num)} · ${esc(s.st.info.year)}</span><h3 style="font-size:16px">${esc(s.st.info.name)}</h3></div>
         <div class="meter"><i style="width:${pct}%"></i></div>
+        ${s.decisive ? `<div><span class="chip ${s.decisive.n === 1 ? "ok" : "star"}" style="white-space:normal">${s.decisive.n === 1 ? "Confirmed" : "Strong match"}: ${esc(s.decisive.labels[0])}${s.decisive.labels.length > 1 ? ` and ${s.decisive.labels.length - 1} more` : ""}</span></div>` : ""}
         <div style="font-size:14px">You have <b>${pct}%</b> of it · ${s.have} of your pieces fit · ${s.matchedTypes} kinds of part match</div>
         ${s.clues.length ? `<div class="clues">Strongest clues: ${s.clues.map(esc).join("; ")}</div>` : ""}
         <div class="row" style="gap:8px">
