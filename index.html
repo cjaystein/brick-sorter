@@ -1958,6 +1958,7 @@ async function rbGet(path, params = {}, opts = {}) {
     if (!r.ok) throw new Error(`Rebrickable returned ${r.status}.`);
     throttled = 0; timeouts = 0;
     const data = await r.json();
+    if (opts.firstPage) return data;
     if (!Array.isArray(data.results)) return data;
     out.push(...data.results);
     url = data.next ? data.next.replace(RB_DIRECT, RB) + (data.next.includes("key=") ? "" : `&key=${encodeURIComponent(key)}`) : null;
@@ -1986,7 +1987,7 @@ function mergeParts(parts) {
 }
 async function fetchSet(num) {
   const enc = encodeURIComponent(num);
-  const info = await rbGet(`/sets/${enc}/`);
+  const info = setInfoSeen.get(num) || await rbGet(`/sets/${enc}/`);
   const bricks = mergeParts(await rbGet(`/sets/${enc}/parts/`, { inc_part_details: 1, inc_minifig_parts: 0 }));
   const all = mergeParts(await rbGet(`/sets/${enc}/parts/`, { inc_part_details: 1, inc_minifig_parts: 1 }));
   const figParts = [];
@@ -2176,7 +2177,51 @@ $("#set-result").addEventListener("click", e => {
 });
 
 // =================== SUGGEST SETS ===================
-const SUGGEST = { maxParts: 120, maxClues: 30, maxCommon: 2000, candidates: 8 };
+const SUGGEST = { maxClues: 40, maxCommon: 2000, candidates: 8 };
+const setInfoSeen = new Map();             // set details that came with other answers, so they needn't be asked for again
+const COMMON_COLOURS = new Set(["Black", "White", "Light Bluish Gray", "Dark Bluish Gray", "Red", "Blue", "Yellow", "Tan",
+  "Reddish Brown", "Light Gray", "Dark Gray", "Green", "Orange", "Dark Tan"].map(Core.normColor));
+// How likely a part is to be a good clue, before asking Rebrickable: printed parts and unusual colours first.
+function clueHint(r) {
+  const id = String(r.part_id).toLowerCase(), name = (r.part_name || "").toLowerCase();
+  let h = 0;
+  if (/(pr|pb|pat|px|ps)\d/.test(id) || /print|pattern|sticker|decorat/.test(name)) h += 3;
+  if (/minifig|torso|legs|hips|head|hair|helmet|hat\b|cape|accessor/.test(name)) h += 1;
+  if (!COMMON_COLOURS.has(Core.normColor(r.color_name))) h += 2;
+  if (/^\d{4}$/.test(id)) h -= 1;               // short plain numbers: the classic bricks and plates
+  return h + Math.min(1, (parseInt(r.quantity, 10) || 1) / 20);
+}
+// Rebrickable numbers for many Brickognize IDs at once; BrickLink-only numbers are looked up one by one.
+async function resolveAll(rows) {
+  const want = [...new Set(rows.filter(r => !r.rb_part).map(r => String(r.part_id)))].filter(id => !(id in rbCache.resolve));
+  for (let i = 0; i < want.length; i += 100) {
+    const chunk = want.slice(i, i + 100);
+    const res = (await rbGet(`/parts/`, { part_nums: chunk.join(","), inc_color_details: 0 }, { missingOk: true })) || [];
+    const byLower = new Map(res.map(p => [String(p.part_num).toLowerCase(), p.part_num]));
+    for (const id of chunk) if (byLower.has(id.toLowerCase())) rbCache.resolve[id] = byLower.get(id.toLowerCase());
+  }
+  const rest = want.filter(id => !(id in rbCache.resolve));
+  for (let i = 0; i < rest.length; i++) {
+    if (rbNotice) rbNotice(`(${i + 1} of ${rest.length} with BrickLink numbers)`);
+    const row = rows.find(r => String(r.part_id) === rest[i]);
+    const hits = await rbGet(`/parts/`, { bricklink_id: String(row.bricklink_id || rest[i]) }, { missingOk: true });
+    rbCache.resolve[rest[i]] = hits && hits.length ? hits[0].part_num : "";
+  }
+}
+// Sets with a part in a colour, and how many there are, in one request. Very common combinations
+// (more than a page of sets) only give their count, which is all that's needed for them.
+async function pcSetsCounted(num, cid) {
+  const k = `${num}|${cid}`;
+  rbCache.pcCount = rbCache.pcCount || {};
+  if (!(k in rbCache.pcCount)) {
+    const d = await rbGet(`/parts/${encodeURIComponent(num)}/colors/${cid}/sets/`, {}, { missingOk: true, firstPage: true });
+    const res = (d && d.results) || [];
+    rbCache.pcCount[k] = d ? (d.count ?? res.length) : 0;
+    if (rbCache.pcCount[k] <= 1000) rbCache.pcSets[k] = res.map(x => x.set_num);
+    for (const x of res) if (x.name && "set_img_url" in x) setInfoSeen.set(x.set_num, x);
+  }
+  return { n: rbCache.pcCount[k], sets: rbCache.pcSets[k] || [] };
+}
 let rbCache = store.get("rbCache", null) || { resolve: {}, colors: {}, pcSets: {}, figSets: {} };
 function saveCache() { if (!store.set("rbCache", rbCache)) { rbCache.pcSets = {}; rbCache.figSets = {}; rbCache.setFigs = {}; rbCache.figParts = {}; store.set("rbCache", rbCache); } }
 let suggestions = [];
@@ -2227,37 +2272,34 @@ async function suggestSets() {
   try {
     await ensureColours();
     const lookup = Core.buildColorLookup(rbColors);
-    // 1. Rebrickable numbers and how rare each part is in each colour
-    const distinct = new Map();
-    for (const r of partRows) {
-      const k = String(r.part_id).toLowerCase();
-      if (!distinct.has(k)) distinct.set(k, { row: r, colours: new Set() });
-      const cid = r.color_name ? lookup.get(Core.normColor(r.color_name)) : undefined;
-      if (cid != null) distinct.get(k).colours.add(cid);
-    }
-    const todo = [...distinct.values()].filter(d => d.colours.size).slice(0, SUGGEST.maxParts);
-    const clues = [];
-    for (let i = 0; i < todo.length; i++) {
-      step(`Checking how rare your parts are (${i + 1} of ${todo.length})…`, 0.5 * i / todo.length);
-      const d = todo[i], num = await resolvePart(d.row);
-      if (!num) continue;
-      const counts = await partColours(num);
-      for (const cid of d.colours) {
-        const n = counts[cid];
-        if (!n) continue;                          // never appeared in that colour: likely a wrong colour guess
-        const c = rbColors.find(x => x.id === cid);
-        clues.push({ num, cid, n, weight: Core.rarity(n), label: `${d.row.part_name || num} in ${c ? c.name : cid}` });
-      }
-      if (i % 10 === 9) saveCache();
-    }
+    // 1. Rebrickable numbers for every part, 100 at a time (Brickognize mostly uses the same numbers)
+    step("Looking up your parts on Rebrickable…", 0.02);
+    await resolveAll(partRows);
     saveCache();
-    // 2. Sets containing the rarest clues, plus sets each linked minifigure is in
-    const rare = clues.filter(c => c.n <= SUGGEST.maxCommon).sort((a, b) => a.n - b.n).slice(0, SUGGEST.maxClues);
-    const evidence = [], weights = new Map();
-    for (const c of clues) weights.set(`${c.num.toLowerCase()}|${c.cid}`, { weight: c.weight, label: c.label });
-    for (let i = 0; i < rare.length; i++) {
-      step(`Finding sets with your rarest parts (${i + 1} of ${rare.length})…`, 0.5 + 0.25 * i / Math.max(1, rare.length));
-      evidence.push({ label: rare[i].label, weight: rare[i].weight, sets: await pcSets(rare[i].num, rare[i].cid) });
+    // 2. The most promising part + colour combinations. One request each gives both how many sets
+    //    have it (rarity) and which sets they are. Printed parts and unusual colours go first;
+    //    plain bricks in common colours are in thousands of sets and say little.
+    const combos = new Map();
+    for (const r of partRows) {
+      const num = r.rb_part || rbCache.resolve[String(r.part_id)];
+      const cid = r.color_name ? lookup.get(Core.normColor(r.color_name)) : undefined;
+      if (!num || cid == null) continue;
+      const k = `${num}|${cid}`;
+      if (!combos.has(k)) combos.set(k, { num, cid, row: r, hint: clueHint(r) });
+    }
+    const todo = [...combos.values()].sort((a, b) => b.hint - a.hint).slice(0, SUGGEST.maxClues);
+    const clues = [], evidence = [], weights = new Map();
+    for (let i = 0; i < todo.length; i++) {
+      const d = todo[i];
+      step(`Checking your most unusual parts (${i + 1} of ${todo.length})…`, 0.05 + 0.6 * i / todo.length);
+      const { n, sets } = await pcSetsCounted(d.num, d.cid);
+      if (!n) continue;                            // never made in that colour: probably a wrong colour guess
+      const c = rbColors.find(x => x.id === d.cid);
+      const clue = { num: d.num, cid: d.cid, n, weight: Core.rarity(n), label: `${d.row.part_name || d.num} in ${c ? c.name : d.cid}` };
+      clues.push(clue);
+      weights.set(`${d.num.toLowerCase()}|${d.cid}`, { weight: clue.weight, label: clue.label });
+      if (n <= SUGGEST.maxCommon && sets.length) evidence.push({ label: clue.label, weight: clue.weight, sets });
+      if (i % 10 === 9) saveCache();
     }
     const figs = [...new Set(figRows.map(r => r.rb_fig))];
     for (const fig of figs) {
@@ -2273,6 +2315,7 @@ async function suggestSets() {
     }
     // 3. Check the leading candidates against their full parts lists
     const top = Core.tallyCandidates(evidence).slice(0, SUGGEST.candidates);
+    renderLikely(top);                             // show the likely sets straight away, then refine them
     const results = [], skipped = [];
     for (let i = 0; i < top.length; i++) {
       step(`Comparing the best matches (${i + 1} of ${top.length}: set ${top[i].set_num})…`, 0.75 + 0.25 * i / top.length);
@@ -2285,10 +2328,17 @@ async function suggestSets() {
     }
     results.sort((a, b) => b.score - a.score || (b.have / Math.max(1, b.need)) - (a.have / Math.max(1, a.need)));
     suggestions = results;
-    step(`Checked ${todo.length} kinds of part${figs.length ? ` and ${figs.length} minifigure${figs.length === 1 ? "" : "s"}` : ""}.${skipped.length ? ` Skipped ${skipped.length} set${skipped.length === 1 ? "" : "s"} Rebrickable didn't answer for: ${skipped.join("; ")}.` : ""}`, 1);
+    step(`Checked your ${todo.length} most unusual parts${figs.length ? ` and ${figs.length} minifigure${figs.length === 1 ? "" : "s"}` : ""}.${skipped.length ? ` Skipped ${skipped.length} set${skipped.length === 1 ? "" : "s"} Rebrickable didn't answer for: ${skipped.join("; ")}.` : ""}`, 1);
     renderSuggestions();
   } catch (ex) { err.textContent = ex.message; err.hidden = false; status.textContent = ""; }
   finally { btn.disabled = false; bar.hidden = true; rbPaced = false; rbNotice = null; saveCache(); }
+}
+function renderLikely(top) {
+  if (!top.length) return;
+  $("#suggest-result").innerHTML = `<p class="muted" style="margin:0;font-size:14px">Likely sets so far (checking each against its full parts list):</p>` +
+    top.map((t, i) => { const info = setInfoSeen.get(t.set_num) || {};
+      return `<div class="sugg" style="opacity:.75">${info.set_img_url ? `<img src="${esc(info.set_img_url)}" alt="" loading="lazy">` : "<span></span>"}
+        <div style="min-width:0"><span class="rank">#${i + 1} · ${esc(t.set_num)}${info.year ? ` · ${esc(info.year)}` : ""}</span><h3 style="font-size:16px">${esc(info.name || "")}</h3></div></div>`; }).join("");
 }
 function renderSuggestions() {
   if (!suggestions.length) { $("#suggest-result").innerHTML = `<p class="muted" style="margin:0">No matching sets found.</p>`; return; }
