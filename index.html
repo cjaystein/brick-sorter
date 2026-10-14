@@ -93,7 +93,7 @@ h2 { font-size: 19px; font-weight: 600; }
 .btn:focus-visible, nav button:focus-visible, .icon-btn:focus-visible, input:focus-visible, select:focus-visible {
   outline: 2px solid var(--accent); outline-offset: 2px;
 }
-input[type="text"], input[type="password"], input[type="number"], input[type="search"], select {
+input[type="text"], input[type="password"], input[type="number"], input[type="search"], input[type="email"], select {
   border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 8px 10px; min-width: 0;
 }
 
@@ -492,7 +492,7 @@ th[aria-sort="descending"]::after { content: " ▼"; }
     <div class="row">
       <div>
         <h1>Inventory</h1>
-        <p class="lede">Saved in this browser. Export it to keep a copy or to move it to another device. The CSV works with the Python script too.</p>
+        <p class="lede"><span id="sync-state">Saved in this browser only.</span> Export a CSV to keep a copy; it works with the Python script too.</p>
       </div>
     </div>
     <div class="stats" id="inv-stats"></div>
@@ -552,6 +552,20 @@ th[aria-sort="descending"]::after { content: " ▼"; }
 <dialog id="settings">
   <form method="dialog" id="settings-form">
     <h2>Settings</h2>
+    <fieldset id="acct">
+      <legend>Account</legend>
+      <div id="acct-out" style="display:grid;gap:8px">
+        <span class="muted" style="font-size:13px">Sign in to keep your inventory, sets and sorting in your account and use them on all your devices. Without an account, everything stays in this browser.</span>
+        <div class="row" style="gap:8px"><input type="email" id="acct-email" placeholder="Your email" autocomplete="email" style="flex:1 1 180px"><button class="btn" type="button" id="acct-send">Email me a code</button></div>
+        <div class="row" id="acct-code-row" hidden style="gap:8px"><input type="text" id="acct-code" inputmode="numeric" autocomplete="one-time-code" placeholder="Code from the email" style="flex:1 1 140px"><button class="btn primary" type="button" id="acct-verify">Sign in</button></div>
+        <span class="muted" id="acct-msg" style="font-size:13px" role="status"></span>
+      </div>
+      <div id="acct-in" hidden style="display:grid;gap:8px">
+        <span>Signed in as <b id="acct-who"></b></span>
+        <span class="muted" id="acct-when" style="font-size:13px"></span>
+        <div class="row" style="gap:8px"><button class="btn small" type="button" id="acct-sync">Sync now</button><button class="btn small" type="button" id="acct-signout">Sign out</button><button class="btn small danger" type="button" id="acct-signout-clear">Sign out and remove from this device</button></div>
+      </div>
+    </fieldset>
     <label for="rb-key" style="display:grid;gap:4px">
       <span class="label">Rebrickable API key</span>
       <input type="password" id="rb-key" autocomplete="off" placeholder="Paste your key">
@@ -575,6 +589,16 @@ th[aria-sort="descending"]::after { content: " ▼"; }
     </label>
     <div class="row"><button class="btn primary" value="save">Save</button><button class="btn" value="cancel" formnovalidate>Cancel</button></div>
     <p class="muted" style="margin:0;font-size:12px" id="app-version"></p>
+  </form>
+</dialog>
+<dialog id="merge-dlg">
+  <form method="dialog" style="display:grid;gap:10px">
+    <h2>This device has parts too</h2>
+    <p id="merge-text" style="margin:0"></p>
+    <button class="btn primary" value="account">Use my account's (this device's copy is kept as a backup)</button>
+    <button class="btn" value="combine">Add them together (if they're different parts)</button>
+    <button class="btn" value="device">Use this device's (replaces what's in the account)</button>
+    <button class="btn" value="">Cancel, and don't sign in</button>
   </form>
 </dialog>
 <div class="notice" id="update-bar" hidden style="position:fixed;left:12px;right:12px;bottom:12px;z-index:50;display:flex;gap:10px;align-items:center;justify-content:space-between;box-shadow:0 6px 24px rgba(0,0,0,.25)">
@@ -1131,7 +1155,7 @@ const blReady = (async () => {
   return blOn;
 })();
 // The version of this page; version.json next to it says the newest one published.
-const APP_VERSION = "2026-10-14 12:33";
+const APP_VERSION = "2026-10-14 12:53";
 async function checkForUpdate() {
   if (!/^https?:$/.test(location.protocol) || APP_VERSION.startsWith("__")) return;
   try {
@@ -1200,6 +1224,7 @@ for (const b of document.querySelectorAll("header nav button")) b.addEventListen
 const dlg = $("#settings");
 function openSettings() {
   $("#app-version").textContent = APP_VERSION.startsWith("__") ? "" : `App version ${APP_VERSION}`;
+  renderAccount();
   $("#rb-key").value = store.get("rbKey", ""); $("#theme").value = store.get("theme", "");
   $("#bl-cond").value = store.get("blCond", "U"); $("#bl-guide").value = store.get("blGuide", "sold");
   $("#bl-cur").value = store.get("blCur", ""); $("#bl-cur").placeholder = blDefaultCur || "AUD";
@@ -2162,7 +2187,7 @@ function applyTable(key) {
     const c = isNum(x) && isNum(y) ? x - y : x === "" ? 1 : y === "" ? -1 : x.localeCompare(y, undefined, { numeric: true, sensitivity: "base" });
     return st.sort.dir * c || a.dataset.o - b.dataset.o;
   } : (a, b) => a.dataset.o - b.dataset.o);
-  for (const tr of rows) body.appendChild(tr);
+  if (rows.some((tr, i) => body.rows[i] !== tr)) for (const tr of rows) body.appendChild(tr);   // only move rows when the order changes
   const words = (st.q || "").trim().toLowerCase().split(/\s+/).filter(Boolean);
   let shown = 0;
   for (const tr of rows) {
@@ -2177,8 +2202,9 @@ function applyTable(key) {
 function applyTables(root = document) { for (const t of root.querySelectorAll("table[data-fkey]")) applyTable(t.dataset.fkey); }
 function onFilter(e) {
   const el = e.target.closest && e.target.closest(".fbar [data-f]"); if (!el) return;
-  const key = el.closest(".fbar").dataset.fkey;
-  (tableState[key] = tableState[key] || {})[el.dataset.f] = el.value;
+  const key = el.closest(".fbar").dataset.fkey, st = (tableState[key] = tableState[key] || {});
+  if ((st[el.dataset.f] || "") === el.value) return;          // e.g. the box losing focus: nothing changed
+  st[el.dataset.f] = el.value;
   applyTable(key);
 }
 document.addEventListener("input", onFilter);
@@ -2204,11 +2230,12 @@ function addToInventory(row) {
   else inventory.push({ type: Core.rowType(row), part_id: String(row.part_id), part_name: row.part_name || "", color_name: row.color_name || "", color_id: row.color_id ?? "",
     quantity: q, bricklink_id: row.bricklink_id || "", rb_part: row.rb_part || "", rb_fig: row.rb_fig || "", img_url: row.img_url || "" });
 }
-function saveInventory() {
+function saveInventory(push = true) {
   inventory.sort((a, b) => (Core.rowType(a) === "fig" ? 0 : 1) - (Core.rowType(b) === "fig" ? 0 : 1) || (a.part_name || "").localeCompare(b.part_name || "") || (a.color_name || "").localeCompare(b.color_name || ""));
   if (!store.set("inventory", inventory)) toast("Couldn't save in this browser. Export a CSV to keep your inventory.");
   $("#inv-count").textContent = inventory.reduce((s, r) => s + r.quantity, 0);
   if (!$("#view-inv").hidden) renderInventory();
+  if (push) cloudSoon();
 }
 const invPriceArgs = r => { const kind = Core.rowType(r), no = r.bricklink_id || r.part_id; return /^fig-/i.test(no) ? { kind, no, blc: null, name: r.part_name, noPrice: true } : { kind, no, blc: kind === "part" ? blColour(r.color_name) : null }; };
 function renderInvStats() {
@@ -2538,7 +2565,7 @@ function expectedChanged() {
   if (!store.set("expectedSets", expectedSets)) toast("Couldn't save the set list in this browser.");
   for (const r of review) if (!r.touched) applyChoice(r, false);
   needCache = null;
-  renderExpected(); renderReview(); renderSort();
+  renderExpected(); renderReview(); renderSort(); cloudSoon();
 }
 function renderExpected() {
   $("#expect-list").innerHTML = expectedSets.map((st, i) => `<div class="setchip">
@@ -3240,6 +3267,7 @@ function saveSort() {
   sortSession.cards = sortCards.filter(c => !c.busy && c.bin).slice(0, 60)
     .map(c => ({ id: c.id, thumb: c.thumb, info: c.info, bin: c.bin, inv: c.inv || null, cond: c.cond, rare: c.rare ? { n: c.rare.n, sets: c.rare.sets.slice(0, 3) } : null }));
   if (!store.set("sortSession", sortSession)) { sortSession.cards = sortSession.cards.slice(0, 10); store.set("sortSession", sortSession); }
+  cloudSoon();
 }
 // What each set still needs: key -> [{set, need, left}] in pile order.
 function needs() {
@@ -3771,6 +3799,303 @@ document.addEventListener("click", async e => {
   try { await navigator.clipboard.writeText(w.xml); toast(`Copied ${w.n} parts. Paste them on BrickLink's upload page`); }
   catch { download(`bricklink-wanted-${stamp}.xml`, w.xml, "application/xml"); toast("Couldn't copy here, so it was downloaded instead"); }
 });
+
+// =================== ACCOUNT: sign in and sync with Supabase ===================
+// Everything still lives in this browser first, so scanning works offline. When you're signed in,
+// changes go up a moment later and changes from your other devices come down when the page opens,
+// comes back on screen, and every minute while it's open. The inventory is one database row per
+// part (so two devices editing different parts don't clash); the pile's sets, the sorting bins and
+// your preferences are one row each. Only you can read your rows (row level security).
+const SB_URL = store.get("sbUrl", "https://gcwexkeoguuuuztjlqzc.supabase.co");
+const SB_KEY = store.get("sbKey", "sb_publishable_tI7qU67aKW97yzKEPBmKBg_BoY8JgRf");   // publishable: meant to be public
+let auth = store.get("auth", null);                // {access_token, refresh_token, expires_at, user: {id, email}}
+let syncBase = store.get("syncBase", null);        // what the account had at the last sync: {user, inv, state, lastPull, at}
+let syncBusy = null, syncTimer = null, syncState = "", refreshing = null;
+const PREF_KEYS = ["binRare", "binFigparts", "binOther", "sortAuto", "sortSound", "sortMode", "figsWhole", "blCond", "blGuide", "blCur", "scanMode"];
+class SignedOut extends Error {}
+
+async function sbFetch(path, opts = {}, withUser = true) {
+  const headers = { apikey: SB_KEY, ...(opts.body ? { "content-type": "application/json" } : {}), ...(opts.headers || {}) };
+  if (withUser) headers.Authorization = `Bearer ${await accessToken()}`;
+  const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 30000);
+  let r;
+  try { r = await fetch(SB_URL + path, { ...opts, headers, signal: ctl.signal }); }
+  catch { throw new NetError("offline"); }
+  finally { clearTimeout(t); }
+  if (r.status === 401 && withUser && !opts.retried) { await refreshSession(true); return sbFetch(path, { ...opts, retried: true }, withUser); }
+  const text = await r.text();
+  let j = null; try { j = text ? JSON.parse(text) : null; } catch {}
+  if (!r.ok) {
+    const msg = j && (j.msg || j.message || j.error_description || j.error);
+    throw new Error(msg ? String(msg) : `The account server returned ${r.status}`);
+  }
+  return j;
+}
+function saveAuth(s) {
+  auth = s ? { access_token: s.access_token, refresh_token: s.refresh_token,
+    expires_at: s.expires_at || Math.floor(Date.now() / 1000) + (s.expires_in || 3600), user: s.user ? { id: s.user.id, email: s.user.email } : auth && auth.user } : null;
+  store.set("auth", auth);
+}
+async function accessToken() {
+  if (!auth) throw new SignedOut("signed out");
+  if (auth.expires_at - 60 > Date.now() / 1000) return auth.access_token;
+  await refreshSession();
+  return auth.access_token;
+}
+function refreshSession(force) {
+  if (!auth) return Promise.reject(new SignedOut("signed out"));
+  if (!force && auth.expires_at - 60 > Date.now() / 1000) return Promise.resolve();
+  if (!refreshing) refreshing = (async () => {
+    try { saveAuth(await sbFetch("/auth/v1/token?grant_type=refresh_token", { method: "POST", body: JSON.stringify({ refresh_token: auth.refresh_token }) }, false)); }
+    catch (e) {
+      if (e instanceof NetError) throw e;
+      saveAuth(null); renderAccount(); toast("You were signed out. Sign in again to keep syncing.");
+      throw new SignedOut("signed out");
+    }
+  })().finally(() => { refreshing = null; });
+  return refreshing;
+}
+
+// ---------- signing in: a code (or link) by email ----------
+const here = () => location.origin + location.pathname;
+async function sendCode(email) {
+  await sbFetch(`/auth/v1/otp?redirect_to=${encodeURIComponent(here())}`, { method: "POST", body: JSON.stringify({ email, create_user: true }) }, false);
+}
+async function verifyCode(email, token) {
+  let s, first;
+  for (const type of ["email", "signup", "magiclink"]) {      // "email" covers both; the others are for older setups
+    try { s = await sbFetch("/auth/v1/verify", { method: "POST", body: JSON.stringify({ type, email, token }) }, false); break; }
+    catch (e) { if (e instanceof NetError) throw e; first = first || e; }
+  }
+  if (!s) throw first;
+  saveAuth(s); await signedIn();
+}
+async function linkLanding() {                       // coming back from the link in the email
+  const h = new URLSearchParams(location.hash.slice(1));
+  if (!h.get("access_token") && !h.get("error_description")) return;
+  history.replaceState(null, "", location.pathname + location.search);
+  if (h.get("error_description")) { toast(`Sign-in link didn't work: ${h.get("error_description")}. Ask for a new code.`); openSettings(); return; }
+  saveAuth({ access_token: h.get("access_token"), refresh_token: h.get("refresh_token"), expires_at: +h.get("expires_at") || 0, expires_in: +h.get("expires_in") || 3600 });
+  try { const u = await sbFetch("/auth/v1/user"); auth.user = { id: u.id, email: u.email }; store.set("auth", auth); await signedIn(); }
+  catch (e) { saveAuth(null); toast(`Couldn't finish signing in: ${e.message}`); }
+}
+async function signedIn() {
+  renderAccount();
+  toast(`Signed in as ${auth.user.email}`);
+  await syncNow({ first: true });
+}
+async function signOut(clear) {
+  try { await sbFetch("/auth/v1/logout", { method: "POST" }); } catch {}
+  saveAuth(null);
+  if (clear) {
+    inventory = []; saveInventory();
+    expectedSets = []; expectedChanged();
+    sortSession = { started: Date.now(), sorted: [], counts: {}, cards: [] }; sortCards = []; needCache = null; saveSort(); renderSort();
+    syncBase = null; store.set("syncBase", null);
+  }
+  renderAccount();
+  toast(clear ? "Signed out, and this device's copy was removed" : "Signed out. Your data stays on this device too");
+}
+
+// ---------- what's here vs what the account has ----------
+const fieldsOf = r => JSON.stringify(Object.fromEntries(FIELDS.filter(f => f !== "quantity").map(f => [f, r[f] ?? ""])));
+function localInv() {
+  const m = {};
+  for (const r of inventory) { const k = invKey(r); m[k] = { q: (m[k] ? m[k].q : 0) + (parseInt(r.quantity, 10) || 0), d: fieldsOf(r) }; }
+  return m;
+}
+const sameItem = (a, b) => (a ? a.q : 0) === (b ? b.q : 0) && (!a || !b || !a.q || a.d === b.d);
+function localState() {
+  const sort = { ...sortSession, cards: (sortSession.cards || []).map(c => ({ ...c, thumb: "" })) };
+  return {
+    pile: { sets: expectedSets.map(st => st.info.set_num) },
+    sort,
+    prefs: Object.fromEntries(PREF_KEYS.map(k => [k, store.get(k, null)]).filter(([, v]) => v !== null)),
+  };
+}
+const hashOf = v => JSON.stringify(v);
+async function fetchAll(table, since) {
+  const out = [];
+  for (let off = 0; ; off += 1000) {
+    const q = `/rest/v1/${table}?select=*&order=updated_at.asc&limit=1000&offset=${off}${since ? `&updated_at=gte.${encodeURIComponent(since)}` : ""}`;
+    const rows = await sbFetch(q);
+    out.push(...rows);
+    if (rows.length < 1000) return out;
+  }
+}
+async function upsert(table, rows, conflict) {
+  const out = [];
+  for (let i = 0; i < rows.length; i += 500)
+    out.push(...await sbFetch(`/rest/v1/${table}?on_conflict=${conflict}`, { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=representation" }, body: JSON.stringify(rows.slice(i, i + 500)) }));
+  return out;
+}
+function setLocalItem(key, q, data) {
+  const i = inventory.findIndex(r => invKey(r) === key);
+  if (q <= 0) { if (i >= 0) inventory.splice(i, 1); return; }
+  const row = { ...data, type: data.type || "part", quantity: q };
+  if (i >= 0) inventory[i] = row; else inventory.push(row);
+}
+async function applyPile(sets) {                     // fetch any set this device doesn't have yet
+  const have = new Map(expectedSets.map(st => [st.info.set_num, st]));
+  const next = [];
+  if (sets.some(sn => !have.has(sn))) { await loadIndex(); await ensureColours(); }
+  for (const sn of sets) next.push(have.get(sn) || await fetchSet(sn));
+  expectedSets = next; expectedChanged();
+}
+function applySort(value) {
+  const thumbs = new Map((sortSession.cards || []).map(c => [c.id, c.thumb]));
+  sortSession = { started: Date.now(), sorted: [], counts: {}, ...value };
+  sortSession.cards = (sortSession.cards || []).map(c => ({ ...c, thumb: c.thumb || thumbs.get(c.id) || "" }));
+  sortCards = sortSession.cards.map(c => ({ ...c, restored: true }));
+  sortSeq = Math.max(sortSeq, ...sortCards.map(c => c.id), 0);
+  needCache = null; store.set("sortSession", sortSession); renderSort();
+}
+function applyPrefs(value) { for (const [k, v] of Object.entries(value || {})) if (PREF_KEYS.includes(k)) store.set(k, v); }
+
+// ---------- one sync: send what changed here, then fetch what changed elsewhere ----------
+async function syncOnce({ first } = {}) {
+  const uid = auth.user.id;
+  if (!syncBase || syncBase.user !== uid) {          // first sync of this account on this device
+    const [rows, states] = await Promise.all([fetchAll("inventory_items"), fetchAll("user_state")]);
+    const remote = rows.filter(r => r.quantity > 0);
+    const hasLocal = inventory.length || expectedSets.length || sortCards.length;
+    const hasRemote = remote.length || states.some(s => s.key === "pile" && s.value && s.value.sets && s.value.sets.length);
+    let choice = !hasRemote ? "device" : !hasLocal ? "account" : await askMerge(inventory.reduce((s, r) => s + r.quantity, 0), remote.reduce((s, r) => s + r.quantity, 0));
+    if (!choice) { saveAuth(null); renderAccount(); toast("Not signed in: nothing was changed"); return; }
+    const base = { user: uid, inv: {}, state: {}, lastPull: null };
+    for (const r of rows) base.inv[r.item_key] = { q: r.quantity, d: fieldsOf(r.data || {}) };
+    for (const r of rows) base.lastPull = r.updated_at;
+    if (choice === "account" || choice === "combine") {
+      if (choice === "account" && inventory.length) store.set("inventoryBackup", { at: new Date().toISOString(), rows: inventory });
+      if (choice === "account") inventory = [];
+      for (const r of remote) {
+        const i = inventory.findIndex(x => invKey(x) === r.item_key);
+        if (choice === "combine" && i >= 0) inventory[i].quantity += r.quantity; else setLocalItem(r.item_key, r.quantity, r.data || {});
+      }
+      saveInventory(false);
+      for (const s of states) try {
+        if (s.key === "pile") await applyPile(choice === "combine" ? [...new Set(expectedSets.map(st => st.info.set_num).concat(s.value.sets || []))] : s.value.sets || []);
+        if (s.key === "sort" && choice === "account") applySort(s.value);
+        if (s.key === "prefs") applyPrefs(s.value);
+      } catch (e) { console.warn("couldn't apply", s.key, e); }
+    }
+    for (const s of states) base.state[s.key] = { at: s.updated_at, h: choice === "account" ? hashOf(localState()[s.key]) : "" };
+    syncBase = base; store.set("syncBase", syncBase);
+  }
+  // send what changed here since the last sync (a removed part is sent as quantity 0)
+  const cur = localInv(), base = syncBase.inv, items = [];
+  for (const [k, v] of Object.entries(cur)) if (!sameItem(base[k], v)) items.push({ user_id: uid, item_key: k, quantity: v.q, data: JSON.parse(v.d) });
+  for (const [k, v] of Object.entries(base)) if (!cur[k] && v.q > 0) items.push({ user_id: uid, item_key: k, quantity: 0, data: JSON.parse(v.d) });
+  if (items.length) for (const r of await upsert("inventory_items", items, "user_id,item_key")) base[r.item_key] = { q: r.quantity, d: fieldsOf(r.data || {}) };
+  const st = localState(), dirty = [];
+  for (const k of Object.keys(st)) if (!syncBase.state[k] || syncBase.state[k].h !== hashOf(st[k])) dirty.push({ user_id: uid, key: k, value: st[k] });
+  if (dirty.length) for (const r of await upsert("user_state", dirty, "user_id,key")) syncBase.state[r.key] = { at: r.updated_at, h: hashOf(st[r.key]) };
+  store.set("syncBase", syncBase);
+  // fetch what changed elsewhere; a part changed here too since the last sync keeps this device's version
+  let changed = false;
+  const rows = await fetchAll("inventory_items", syncBase.lastPull), now = localInv();
+  for (const r of rows) {
+    const mine = now[r.item_key], b = base[r.item_key], theirs = { q: r.quantity, d: fieldsOf(r.data || {}) };
+    if (sameItem(b, mine) && !sameItem(mine, theirs)) { setLocalItem(r.item_key, r.quantity, r.data || {}); changed = true; }
+    if (sameItem(b, mine)) base[r.item_key] = theirs;
+    if (!syncBase.lastPull || r.updated_at > syncBase.lastPull) syncBase.lastPull = r.updated_at;
+  }
+  if (changed) saveInventory(false);
+  const st2 = localState();
+  for (const s of await fetchAll("user_state")) {
+    const b = syncBase.state[s.key];
+    if (b && b.at === s.updated_at) continue;                 // nothing new
+    if (b && b.h && b.h !== hashOf(st2[s.key])) continue;      // changed here too: this device's version is sent next time
+    try {
+      if (s.key === "pile") await applyPile(s.value.sets || []);
+      if (s.key === "sort") applySort(s.value);
+      if (s.key === "prefs") applyPrefs(s.value);
+      syncBase.state[s.key] = { at: s.updated_at, h: hashOf(localState()[s.key]) };
+    } catch (e) { console.warn("couldn't apply", s.key, e); }
+  }
+  syncBase.at = Date.now();
+  store.set("syncBase", syncBase);
+}
+async function syncNow(opts = {}) {
+  if (!auth) return;
+  if (syncBusy) { syncBusy.again = true; return syncBusy; }
+  syncState = "syncing"; renderSyncState();
+  syncBusy = (async () => {
+    try { await syncOnce(opts); syncState = "ok"; }
+    catch (e) {
+      if (e instanceof SignedOut) syncState = "";
+      else if (e instanceof NetError) syncState = "offline";
+      else { syncState = "error"; console.warn("sync failed", e); syncBusy.err = e.message; }
+    }
+  })();
+  const job = syncBusy;
+  await job;
+  syncBusy = null;
+  if (job.err) toast(`Couldn't sync: ${job.err}`);
+  renderSyncState(); renderAccount();
+  if (job.again) cloudSoon();
+}
+function cloudSoon() {
+  if (!auth || !syncBase) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(syncNow, 1500);
+}
+function renderSyncState() {
+  const el = $("#sync-state"); if (!el) return;
+  const t = syncBase && syncBase.at ? new Date(syncBase.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "";
+  el.textContent = !auth ? "Saved in this browser only." : syncState === "syncing" ? "Syncing with your account…"
+    : syncState === "offline" ? "Offline: changes are saved here and will sync when you're back online."
+    : syncState === "error" ? "Couldn't sync. It'll try again shortly."
+    : `Saved to your account (${auth.user.email})${t ? `, synced ${t}` : ""}.`;
+}
+
+// ---------- the account part of Settings ----------
+function renderAccount() {
+  const on = !!(auth && auth.user);
+  $("#acct-out").hidden = on; $("#acct-in").hidden = !on;
+  if (on) $("#acct-who").textContent = auth.user.email;
+  const t = syncBase && syncBase.at ? new Date(syncBase.at).toLocaleString([], { hour: "numeric", minute: "2-digit", day: "numeric", month: "short" }) : "not yet";
+  if (on) $("#acct-when").textContent = syncState === "offline" ? "Offline: will sync when you're back online." : `Last synced: ${t}.`;
+  renderSyncState();
+}
+function askMerge(here, there) {
+  const d = $("#merge-dlg");
+  $("#merge-text").textContent = `This device has ${here} piece${here === 1 ? "" : "s"} in its inventory, and your account has ${there}. What should happen?`;
+  d.returnValue = "";
+  d.showModal();
+  return new Promise(res => d.addEventListener("close", () => res(d.returnValue || null), { once: true }));
+}
+$("#acct-send").addEventListener("click", async () => {
+  const email = $("#acct-email").value.trim(), msg = $("#acct-msg");
+  if (!/^\S+@\S+\.\S+$/.test(email)) { msg.textContent = "Type your email address first."; return; }
+  $("#acct-send").disabled = true; msg.textContent = "Sending…";
+  try {
+    await sendCode(email);
+    store.set("acctEmail", email);
+    $("#acct-code-row").hidden = false; $("#acct-code").focus();
+    msg.textContent = `Sent to ${email}. Type the code from the email here, or tap the link in it on this device. It can take a minute; check your junk folder too.`;
+  } catch (e) { msg.textContent = e instanceof NetError ? "Couldn't reach the account server. Check your internet connection." : `Couldn't send it: ${e.message}`; }
+  finally { $("#acct-send").disabled = false; }
+});
+$("#acct-verify").addEventListener("click", async () => {
+  const email = $("#acct-email").value.trim(), code = $("#acct-code").value.replace(/\s/g, ""), msg = $("#acct-msg");
+  if (!code) { msg.textContent = "Type the code from the email."; return; }
+  $("#acct-verify").disabled = true; msg.textContent = "Checking…";
+  try { await verifyCode(email, code); msg.textContent = ""; $("#acct-code").value = ""; $("#acct-code-row").hidden = true; }
+  catch (e) { msg.textContent = e instanceof NetError ? "Couldn't reach the account server. Check your internet connection." : `That code didn't work (${e.message}). Codes expire after an hour; ask for a new one if needed.`; }
+  finally { $("#acct-verify").disabled = false; }
+});
+for (const [input, btn] of [["#acct-email", "#acct-send"], ["#acct-code", "#acct-verify"]])
+  $(input).addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); $(btn).click(); } });
+$("#acct-sync").addEventListener("click", () => syncNow());
+$("#acct-signout").addEventListener("click", () => signOut(false));
+$("#acct-signout-clear").addEventListener("click", () => signOut(true));
+$("#acct-email").value = store.get("acctEmail", "");
+window.addEventListener("online", () => syncNow());
+document.addEventListener("visibilitychange", () => { if (!document.hidden) syncNow(); });
+setInterval(() => { if (!document.hidden) syncNow(); }, 60000);
+renderAccount();
+linkLanding().then(() => { if (auth && !syncBusy) syncNow(); });
 
 blReady.then(on => { if (on) { renderReview(); if (!$("#view-inv").hidden) renderInventory(); } });
 setTimeout(() => loadIndex().then(x => { if (x && review.length) renderReview(); }), 1500);

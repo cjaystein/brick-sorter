@@ -59,7 +59,8 @@ the phone. Windows may ask whether to allow Python on private networks; allow
 it. The trained detector runs on the phone's CPU there, so it's slower.
 
 **Your saved data:** the browser keeps your inventory, API key, expected sets
-and detector per address. If you used the app as a file before, open the old
+and detector per address (sign in to an account to share them between
+devices, see below). If you used the app as a file before, open the old
 copy, **Export CSV** on the Inventory tab, then **Import CSV** in the
 http://localhost:8642 version, and enter your Rebrickable key and load the
 detector again.
@@ -335,6 +336,34 @@ part once, with:
 
 Without a Rebrickable key the part numbers are Rebrickable's, which nearly
 always match BrickLink's; with a key, BrickLink's own numbers are used.
+
+## Account and sync (optional)
+
+Sign in under **Settings → Account** to keep your inventory, the sets in your
+pile, your sorting bins and your preferences in your account, and use them on
+all your devices. Type your email, tap **Email me a code**, then type the code
+from the email (or tap its link on the same device). Without an account,
+everything stays in that browser, as before.
+
+- Everything still works offline: changes are saved on the device first and
+  sent to your account a moment later, or when you're back online. Changes
+  from your other devices arrive when you open the app and every minute while
+  it's open. If the same part was changed on two devices before they synced,
+  the latest one to sync keeps its version.
+- Signing in on a device that already has parts asks whether to use the
+  account's, add the two together, or use this device's.
+- **Sign out** keeps a copy on the device; **Sign out and remove from this
+  device** clears it (your account keeps everything).
+- Your Rebrickable key stays on each device, and photos aren't uploaded.
+
+The data lives in a Supabase project (free tier). To run your own, create a
+project, paste `supabase_setup.sql` into its SQL editor, set the Site URL and
+redirect URLs under Authentication → URL Configuration, add `{{ .Token }}` to
+the Magic Link and Confirm signup email templates, and put the project URL
+and publishable key at the top of the account code in `brick-sorter.html`.
+Every table only lets each person read and change their own rows. Supabase's
+built-in email sender only sends a few emails an hour; for more people, add
+your own email service under Authentication → Emails → SMTP.
 
 ## Minifigures
 
