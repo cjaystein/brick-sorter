@@ -268,6 +268,16 @@ details.setblock > summary { cursor: pointer; font-weight: 700; color: var(--acc
 .scard .acts select { padding: 4px 6px; font-size: 13px; max-width: 100%; }
 .scard .why { grid-column: 1 / -1; font-size: 13px; }
 .shop { display: grid; gap: 10px; }
+.mscard { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; display: grid; gap: 10px; min-width: 0; }
+.mshead { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 14px; align-items: center; }
+.mshead img { width: 120px; height: 90px; object-fit: contain; background: #fff; border-radius: 8px; }
+.mshead h3 { font-size: 18px; }
+.msfields { gap: 8px; }
+.msfields input[type="text"] { flex: 1 1 180px; }
+.mscard > input[type="text"] { width: 100%; }
+.msparts { display: grid; gap: 10px; margin-top: 8px; }
+.figrow .qty span { min-width: 3.5ch; }
+@media (max-width: 560px) { .mshead { grid-template-columns: 80px minmax(0, 1fr); } .mshead img { width: 80px; height: 60px; } }
 .fbar { gap: 8px; }
 .fbar select { max-width: 100%; flex: 0 1 auto; }
 th.sortable { cursor: pointer; user-select: none; }
@@ -292,6 +302,7 @@ th[aria-sort="descending"]::after { content: " ▼"; }
     <nav role="tablist" aria-label="Sections">
       <button role="tab" id="tab-scan" aria-selected="true" data-view="scan">Scan</button>
       <button role="tab" id="tab-sort" aria-selected="false" data-view="sort">Sort</button>
+      <button role="tab" id="tab-mysets" aria-selected="false" data-view="mysets">My sets</button>
       <button role="tab" id="tab-inv" aria-selected="false" data-view="inv">Inventory<span class="count" id="inv-count">0</span></button>
       <button role="tab" id="tab-set" aria-selected="false" data-view="set">Set check</button>
     </nav>
@@ -456,7 +467,7 @@ th[aria-sort="descending"]::after { content: " ▼"; }
         <button class="btn small spacer" type="button" id="sort-new">Start a new sort</button>
       </div>
       <div class="confirm" id="sort-new-confirm" hidden>
-        <span>Empty all the bins and start again? Parts already added to your inventory stay there.</span>
+        <span>Empty the bins and start again? Parts added to your inventory stay there, and My sets keeps what's been found for each set.</span>
         <button class="btn danger" type="button" id="sort-new-yes">Start again</button>
         <button class="btn" type="button" id="sort-new-no">Keep sorting</button>
       </div>
@@ -485,6 +496,31 @@ th[aria-sort="descending"]::after { content: " ▼"; }
     </div>
 
     <div id="sort-shop"></div>
+  </section>
+
+  <!-- MY SETS -->
+  <section id="view-mysets" class="view" hidden style="display:grid;gap:20px">
+    <div>
+      <h1>My sets</h1>
+      <p class="lede">Every set you're rebuilding: how far along each one is, which lot it came from, what's still missing and where to find the instructions. Parts sorted into a set's bin count towards it, and you can tick parts off by hand.</p>
+    </div>
+    <form class="row" id="ms-add-form">
+      <input type="text" id="ms-add" placeholder="Add a set, e.g. 6285" style="flex:1 1 180px" autocomplete="off">
+      <button class="btn primary" type="submit" id="ms-add-btn">Add set</button>
+    </form>
+    <div class="notice bad" id="ms-error" hidden></div>
+    <div class="panel empty" id="ms-empty" hidden><strong>No sets yet</strong><span>Add a set number above, or let the app suggest which sets your parts came from.</span><button class="btn" type="button" id="ms-go-scan">Suggest sets</button></div>
+    <div class="row fbar">
+      <input type="search" id="ms-q" placeholder="Filter by name, number, lot or notes" aria-label="Filter sets" style="flex:1 1 200px">
+      <select id="ms-status" aria-label="Status"><option value="">All statuses</option><option value="collecting">Collecting parts</option><option value="waiting">Waiting on bought parts</option><option value="complete">All parts found</option><option value="built">Built</option><option value="sold">Sold</option></select>
+      <select id="ms-lot" aria-label="Lot"><option value="">All lots</option></select>
+      <select id="ms-order" aria-label="Order"><option value="added">Newest first</option><option value="most">Most complete</option><option value="least">Least complete</option><option value="name">Name</option><option value="year">Year</option></select>
+      <span class="muted" id="ms-count" style="font-size:13px"></span>
+    </div>
+    <datalist id="ms-lots"></datalist>
+    <div><button class="btn" type="button" id="ms-shop" hidden>Shopping list for all unfinished sets</button></div>
+    <div id="ms-shop-out"></div>
+    <div id="ms-list" style="display:grid;gap:12px"></div>
   </section>
 
   <!-- INVENTORY -->
@@ -582,6 +618,13 @@ th[aria-sort="descending"]::after { content: " ▼"; }
         <label for="bl-cur" style="display:grid;gap:4px"><span class="label">Currency</span>
           <input type="text" id="bl-cur" maxlength="3" placeholder="AUD" style="width:80px;text-transform:uppercase" autocomplete="off"></label>
       </div>
+    </fieldset>
+    <fieldset>
+      <legend>Training photos</legend>
+      <label class="check"><input type="checkbox" id="train-on"> Keep a photo of each part I confirm, and my scan photos with every item boxed, to train my own detectors</label>
+      <span class="muted" style="font-size:13px" id="train-state"></span>
+      <div class="row" style="gap:8px"><button class="btn small" type="button" id="train-dl">Download (.zip)</button><button class="btn small danger" type="button" id="train-clear">Delete them</button></div>
+      <span class="muted" style="font-size:12px">Kept on this device only. Download them now and then: iPhones can clear a website's storage after a few weeks without a visit.</span>
     </fieldset>
     <label for="theme" style="display:grid;gap:4px">
       <span class="label">Theme</span>
@@ -763,7 +806,7 @@ const Core = (() => {
       const bw = x1 - x0 + 1, bh = y1 - y0 + 1;
       if (area < minArea || bw * bh > 0.6 * n) continue;
       const pad = Math.round(0.12 * Math.max(bw, bh)) + 4;
-      boxes.push({ x0: Math.max(0, x0 - pad), y0: Math.max(0, y0 - pad), x1: Math.min(w, x1 + 1 + pad), y1: Math.min(h, y1 + 1 + pad) });
+      boxes.push({ x0: Math.max(0, x0 - pad), y0: Math.max(0, y0 - pad), x1: Math.min(w, x1 + 1 + pad), y1: Math.min(h, y1 + 1 + pad), tight: [x0, y0, x1 + 1, y1 + 1] });
     }
     const band = Math.max(1, Math.round(0.08 * h));
     boxes.sort((a, b) => (Math.floor(a.y0 / band) - Math.floor(b.y0 / band)) || (a.x0 - b.x0));
@@ -1155,7 +1198,7 @@ const blReady = (async () => {
   return blOn;
 })();
 // The version of this page; version.json next to it says the newest one published.
-const APP_VERSION = "2026-10-14 12:53";
+const APP_VERSION = "2026-10-14 14:03";
 async function checkForUpdate() {
   if (!/^https?:$/.test(location.protocol) || APP_VERSION.startsWith("__")) return;
   try {
@@ -1216,6 +1259,7 @@ function show(view) {
   if (view === "inv") renderInventory();
   if (view === "set") { $("#key-needed").hidden = hasRb(); renderExpected(); }
   if (view === "sort") { renderSort(); ensureColours().catch(() => {}); } else if (typeof stopCam === "function") stopCam();
+  if (view === "mysets") { renderMySets(); loadIndex(); }
   window.scrollTo({ top: 0 });
 }
 for (const b of document.querySelectorAll("header nav button")) b.addEventListener("click", () => show(b.dataset.view));
@@ -1224,7 +1268,7 @@ for (const b of document.querySelectorAll("header nav button")) b.addEventListen
 const dlg = $("#settings");
 function openSettings() {
   $("#app-version").textContent = APP_VERSION.startsWith("__") ? "" : `App version ${APP_VERSION}`;
-  renderAccount();
+  renderAccount(); renderTraining();
   $("#rb-key").value = store.get("rbKey", ""); $("#theme").value = store.get("theme", "");
   $("#bl-cond").value = store.get("blCond", "U"); $("#bl-guide").value = store.get("blGuide", "sold");
   $("#bl-cur").value = store.get("blCur", ""); $("#bl-cur").placeholder = blDefaultCur || "AUD";
@@ -1312,8 +1356,12 @@ const confOf = m => store.get("conf-" + m.id, m.conf);
 function idb() {
   return new Promise((res, rej) => {
     try {
-      const req = indexedDB.open("brick-sorter", 1);
-      req.onupgradeneeded = () => req.result.createObjectStore("files");
+      const req = indexedDB.open("brick-sorter", 2);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains("files")) db.createObjectStore("files");
+        if (!db.objectStoreNames.contains("training")) db.createObjectStore("training", { keyPath: "id", autoIncrement: true });
+      };
       req.onsuccess = () => res(req.result); req.onerror = () => rej(req.error);
     } catch (e) { rej(e); }
   });
@@ -1437,7 +1485,8 @@ function boxesFromDet(p, m) {
     x0 /= d.k; y0 /= d.k; x1 /= d.k; y1 /= d.k;
     const pad = 0.08 * Math.max(x1 - x0, y1 - y0) + 4;
     return { x0: Math.max(0, (x0 - pad) * p.scale), y0: Math.max(0, (y0 - pad) * p.scale),
-             x1: Math.min(p.cw, (x1 + pad) * p.scale), y1: Math.min(p.ch, (y1 + pad) * p.scale) };
+             x1: Math.min(p.cw, (x1 + pad) * p.scale), y1: Math.min(p.ch, (y1 + pad) * p.scale),
+             tight: [x0 * p.scale, y0 * p.scale, x1 * p.scale, y1 * p.scale] };
   });
   return Core.sortReading(boxes, p.ch);
 }
@@ -1817,8 +1866,8 @@ $("#identify").addEventListener("click", async () => {
     while (cursor < jobs.length && !netFail) {
       const k = cursor++, j = jobs[k];
       const { blob, url } = await cropBlob(j.p, j.b);
-      try { results[k] = { crop: url, blob, photo: j.p.name, n: j.i + 1, mode, res: await identifyOne(blob, mode) }; }
-      catch (e) { if (e instanceof NetError) netFail = true; failed++; results[k] = { crop: url, blob, photo: j.p.name, n: j.i + 1, mode, error: e.message }; }
+      try { results[k] = { crop: url, blob, photo: j.p.name, photoId: j.p.id, n: j.i + 1, mode, res: await identifyOne(blob, mode) }; }
+      catch (e) { if (e instanceof NetError) netFail = true; failed++; results[k] = { crop: url, blob, photo: j.p.name, photoId: j.p.id, n: j.i + 1, mode, error: e.message }; }
       done++; setProgress();
     }
   }
@@ -1845,7 +1894,7 @@ function toReview(r) {
   const rv = { id: ++reviewSeq, crop: r.crop, photo: r.photo, n: r.n, mode: r.mode, error: r.error || (items.length ? "" : "No match found"),
     items, colors, item: 0, kinds: items.map(it => kindOf(it, r.mode)), colorOpts: [], colorSel: -1, figOpts: [], figSel: -1,
     notes: [], entries: [], figMatch: null, qty: 1, skip: !items.length, touched: false, figPart: false, rbFig: "",
-    blobs: r.blobs || (r.blob ? [r.blob] : []) };
+    blobs: r.blobs || (r.blob ? [r.blob] : []), photoId: r.photoId };
   applyChoice(rv, false);
   const top = items[rv.item];
   rv.figPart = !!top && rv.kinds[rv.item] === "part" && looksLikeFigPart(top);
@@ -2103,7 +2152,7 @@ async function reidentify(r) {
   r.busy = true; renderReview();
   try {
     const res = await identifyOne(r.blobs, r.mode);
-    const fresh = toReview({ crop: r.crop, blobs: r.blobs, photo: r.photo, n: r.n, mode: r.mode, res });
+    const fresh = toReview({ crop: r.crop, blobs: r.blobs, photo: r.photo, photoId: r.photoId, n: r.n, mode: r.mode, res });
     Object.assign(r, fresh, { id: r.id, qty: r.qty, busy: false });
     r.notes.unshift(`Identified from ${r.blobs.length} photos together`);
   } catch (ex) { r.busy = false; toast(`Couldn't identify it again: ${ex.message}`); }
@@ -2124,22 +2173,24 @@ async function mergeInto(target, r) {             // two rows are the same item:
 $("#discard-review").addEventListener("click", () => { review = []; figCands = []; renderReview(); });
 $("#add-all").addEventListener("click", () => {
   let parts = 0, figs = 0;
+  const added = [], add = (r, row) => { addToInventory(row); added.push({ r, row }); };
   for (const r of review) {
     if (r.skip || !r.items.length) continue;
     const it = r.items[r.item], kind = r.kinds[r.item];
     if (kind === "fig") {
       const f = r.figOpts[r.figSel];
-      addToInventory({ type: "fig", part_id: it.id, part_name: it.name, img_url: it.img_url, bricklink_id: blFromItem(it),
+      add(r, { type: "fig", part_id: it.id, part_name: it.name, img_url: it.img_url, bricklink_id: blFromItem(it),
         rb_fig: f ? f.fig_num : r.rbFig || "", quantity: r.qty });
       figs += r.qty;
     } else if (kind === "part") {
       const c = r.colorOpts[r.colorSel], entry = r.entries[r.item];
-      addToInventory({ type: "part", part_id: it.id, part_name: it.name, img_url: it.img_url, bricklink_id: blFromItem(it),
+      add(r, { type: "part", part_id: it.id, part_name: it.name, img_url: it.img_url, bricklink_id: blFromItem(it),
         rb_part: entry ? entry.part_num : "", color_name: c ? c.name : "", color_id: c ? c.id : "", quantity: r.qty });
       parts += r.qty;
     }
   }
   saveInventory();
+  trainFromReview(added);
   review = []; figCands = []; renderReview();
   const bits = [];
   if (parts) bits.push(`${parts} piece${parts === 1 ? "" : "s"}`);
@@ -2565,6 +2616,7 @@ function expectedChanged() {
   if (!store.set("expectedSets", expectedSets)) toast("Couldn't save the set list in this browser.");
   for (const r of review) if (!r.touched) applyChoice(r, false);
   needCache = null;
+  if (typeof ensureMySet === "function" && mySets) { for (const st of expectedSets) ensureMySet(st); store.set("mySets", mySets); }
   renderExpected(); renderReview(); renderSort(); cloudSoon();
 }
 function renderExpected() {
@@ -3277,7 +3329,7 @@ function needs() {
     for (const l of checkLines(st.lines.concat(st.figParts || []))) push(pKey(l.part_num, l.color_id), { set: st.info.set_num, need: l.quantity, left: l.quantity });
     for (const f of st.figs || []) push(fKey(f.fig_num), { set: st.info.set_num, need: f.quantity, left: f.quantity });
   }
-  for (const s of sortSession.sorted) { const e = (m.get(s.key) || []).find(x => x.set === s.set); if (e) e.left -= s.qty; }
+  for (const [k, arr] of m) for (const e of arr) { const s = mySet(e.set); if (s) e.left -= s.have[k] || 0; }
   needCache = m;
   return m;
 }
@@ -3353,10 +3405,10 @@ function removeFromInventory(row) {
 function addCardToInv(c) {
   if (c.inv || !c.r || !c.r.items.length) return;
   const row = cardRow(c); addToInventory(row); saveInventory(); c.inv = row;
+  trainFromCard(c);
 }
 function unassign(c) {
-  const i = sortSession.sorted.findIndex(s => s.card === c.id);
-  if (i >= 0) { sortSession.sorted.splice(i, 1); needCache = null; }
+  if (c.bin && c.bin.counted) { changeHave(c.bin.set, c.bin.key, -1); c.bin.counted = false; }
   if (c.bin) sortSession.counts[c.bin.id] = Math.max(0, (sortSession.counts[c.bin.id] || 0) - 1);
   if (c.inv) { removeFromInventory(c.inv); c.inv = null; }
 }
@@ -3365,7 +3417,7 @@ function assign(c, { keepInv } = {}) {
   unassign(c);
   c.bin = decideBin(c);
   sortSession.counts[c.bin.id] = (sortSession.counts[c.bin.id] || 0) + 1;
-  if (c.bin.key && c.bin.set) { sortSession.sorted.push({ set: c.bin.set, key: c.bin.key, qty: 1, card: c.id }); needCache = null; }
+  if (c.bin.key && c.bin.set && mySet(c.bin.set)) { changeHave(c.bin.set, c.bin.key, 1); c.bin.counted = true; }
   const score = c.r && c.r.items[c.r.item] ? c.r.items[c.r.item].score || 0 : 0;
   if (c.bin.kind !== "check" && ((keepInv && hadInv) || (sortCfg().auto && (score >= CONFIDENT || c.r.touched)))) addCardToInv(c);
   c.info = cardInfo(c);
@@ -3679,11 +3731,12 @@ $("#sort-cards").addEventListener("click", e => {
   if (el.dataset.k === "inv") { if (c.inv) { removeFromInventory(c.inv); c.inv = null; } else addCardToInv(c); }
   if (el.dataset.k === "drop") {
     if (c.restored) {                                  // sorted before a reload: only its bin counts can be undone
-      const i = sortSession.sorted.findIndex(s => s.card === c.id); if (i >= 0) sortSession.sorted.splice(i, 1);
+      if (c.bin && c.bin.counted) changeHave(c.bin.set, c.bin.key, -1);
       if (c.bin) sortSession.counts[c.bin.id] = Math.max(0, (sortSession.counts[c.bin.id] || 0) - 1);
       if (c.inv) removeFromInventory(c.inv);
       needCache = null;
     } else if (!c.busy) unassign(c);
+    if (c.sample > 0) trainDel(c.sample);
     sortCards.splice(sortCards.indexOf(c), 1);
   }
   c.info = c.r ? cardInfo(c) : c.info;
@@ -3708,19 +3761,11 @@ $("#sort-mode").value = sortMode;
 $("#sort-mode").addEventListener("change", () => { sortMode = $("#sort-mode").value; store.set("sortMode", sortMode); });
 
 // What the bins still need, as one shopping list.
-function sortResults() {
-  const got = new Map();
-  for (const s of sortSession.sorted) got.set(`${s.set}|${s.key}`, (got.get(`${s.set}|${s.key}`) || 0) + s.qty);
-  return expectedSets.map(st => {
-    const have = k => got.get(`${st.info.set_num}|${k}`) || 0;
-    const lines = checkLines(st.lines.concat(st.figParts || [])).map(l => { const h = Math.min(l.quantity, have(pKey(l.part_num, l.color_id))); return { ...l, have: h, missing: l.quantity - h }; });
-    return { info: st.info, lines, figs: [] };
-  });
-}
+function sortResults() { return setsResults(expectedSets.map(st => mySet(st.info.set_num)).filter(Boolean)); }
 $("#sort-missing").addEventListener("click", async () => {
   await ensureColours().catch(() => {});
   $("#sort-shop").innerHTML = `<div class="panel">${shopBlock(sortResults(), "Still missing from your set bins",
-    "Everything each set needs that hasn't been sorted into its bin yet, minifigure parts included, added up across your sets.")}</div>`;
+    "Everything each set in the pile still needs (sorted into its bin or ticked off in My sets), minifigure parts included, added up across your sets.")}</div>`;
   applyTables($("#sort-shop"));
   $("#sort-shop").scrollIntoView({ behavior: "smooth", block: "start" });
 });
@@ -3798,6 +3843,412 @@ document.addEventListener("click", async e => {
   if (b.dataset.shop === "xml") return download(`bricklink-wanted-${stamp}.xml`, w.xml, "application/xml");
   try { await navigator.clipboard.writeText(w.xml); toast(`Copied ${w.n} parts. Paste them on BrickLink's upload page`); }
   catch { download(`bricklink-wanted-${stamp}.xml`, w.xml, "application/xml"); toast("Couldn't copy here, so it was downloaded instead"); }
+});
+
+// =================== MY SETS: every set you're rebuilding ===================
+// Each set keeps what's been found for it ("have": part+colour -> pieces), whatever sorting session
+// or lot the pieces came from. Sets in the pile (Sets in this pile) are the ones being sorted into now;
+// adding a set to the pile adds it here too. Synced as one row per set.
+const STATUSES = [["collecting", "Collecting parts"], ["waiting", "Waiting on bought parts"], ["complete", "All parts found"], ["built", "Built"], ["sold", "Sold"]];
+let mySets = store.get("mySets", null);
+const setCache = new Map();                          // set number -> its parts lists (info, lines, figParts, figs)
+const liveSets = () => mySets.filter(s => !s.removed);
+const mySet = num => mySets.find(s => s.set_num === num && !s.removed) || null;
+const setLines = st => checkLines(st.lines.concat(st.figParts || []));
+function newMySet(st) {
+  return { set_num: st.info.set_num, name: st.info.name, year: st.info.year || "", img: st.info.set_img_url || "", theme: st.info.theme || "",
+    status: "collecting", lot: "", notes: "", have: {}, added: Date.now(), total: 0, done: 0, figTotal: 0, figDone: 0 };
+}
+function ensureMySet(st) {
+  let s = mySets.find(x => x.set_num === st.info.set_num);
+  if (!s) { s = newMySet(st); mySets.unshift(s); }
+  else if (s.removed) { s.removed = false; s.added = Date.now(); }
+  setCache.set(s.set_num, st);
+  updateTotals(s);
+  return s;
+}
+function updateTotals(s) {
+  const st = setCache.get(s.set_num) || expectedSets.find(x => x.info.set_num === s.set_num);
+  if (!st) return;
+  let total = 0, done = 0, ft = 0, fd = 0;
+  for (const l of setLines(st)) { total += l.quantity; done += Math.min(l.quantity, s.have[pKey(l.part_num, l.color_id)] || 0); }
+  for (const f of st.figs || []) { ft += f.quantity; fd += Math.min(f.quantity, s.have[fKey(f.fig_num)] || 0); }
+  Object.assign(s, { total, done, figTotal: ft, figDone: fd });
+  if (s.status === "collecting" && total && done >= total) { s.status = "complete"; toast(`${s.name}: every part found!`); }
+}
+async function setData(num) {
+  const hit = expectedSets.find(x => x.info.set_num === num) || setCache.get(num);
+  if (hit) return hit;
+  await loadIndex();
+  const st = (!store.get("rbKey", "") && RBX && rbxSet(num)) || await fetchSet(num);
+  setCache.set(num, st);
+  return st;
+}
+// Counts (pieces found / needed) need the set's parts list; fetch it in the background if this device hasn't yet.
+const totalsLoading = new Set();
+function ensureTotals(s) {
+  if (setCache.has(s.set_num) || expectedSets.some(x => x.info.set_num === s.set_num) || totalsLoading.has(s.set_num)) return;
+  if (!RBX && !store.get("rbKey", "")) return;
+  totalsLoading.add(s.set_num);
+  setData(s.set_num).then(() => { const m = mySet(s.set_num); if (m) { updateTotals(m); store.set("mySets", mySets); renderMySets(); } })
+    .catch(() => {}).finally(() => totalsLoading.delete(s.set_num));
+}
+function changeHave(num, key, d) {                  // d pieces found (+) or taken back (-)
+  const s = mySet(num); if (!s) return;
+  s.have[key] = Math.max(0, (s.have[key] || 0) + d);
+  if (!s.have[key]) delete s.have[key];
+  needCache = null; updateTotals(s); saveMySets();
+}
+let msTimer;
+function saveMySets() {
+  if (!store.set("mySets", mySets)) toast("Couldn't save My sets in this browser.");
+  clearTimeout(msTimer); msTimer = setTimeout(renderMySets, 50);
+  cloudSoon();
+}
+// First run: one entry per set in the pile, with what the Sort tab had already put in its bins.
+if (!mySets) {
+  mySets = [];
+  for (const st of expectedSets) ensureMySet(st);
+  for (const x of sortSession.sorted || []) { const s = mySet(x.set); if (s) s.have[x.key] = (s.have[x.key] || 0) + x.qty; }
+  for (const s of mySets) updateTotals(s);
+  store.set("mySets", mySets);
+}
+sortSession.sorted = [];
+
+// ---------- the page ----------
+const msState = { q: "", status: "", lot: "", order: "added", open: new Set() };
+const instrLinks = s => {
+  const n = s.set_num.replace(/-1$/, "");
+  return `${ext(`https://www.lego.com/en-au/service/buildinginstructions/${encodeURIComponent(n)}`, "LEGO instructions", "LEGO's own building instructions (most sets from 2002 on)")}
+    ${ext(`https://brickset.com/sets/${encodeURIComponent(s.set_num)}`, "Brickset", "Brickset: scanned instructions for older sets")}
+    ${ext(rbUrl("set", s.set_num), "Rebrickable", "Parts list and alternate builds")}
+    ${ext(blUrl("set", s.set_num), "BrickLink", "Price and listings")}`;
+};
+function renderMySets() {
+  if (!$("#view-mysets") || $("#view-mysets").hidden) return;
+  const all = liveSets(), lots = [...new Set(all.map(s => s.lot).filter(Boolean))].sort();
+  $("#ms-lot").innerHTML = `<option value="">All lots</option>${lots.map(l => `<option ${l === msState.lot ? "selected" : ""}>${esc(l)}</option>`).join("")}`;
+  $("#ms-lots").innerHTML = lots.map(l => `<option value="${esc(l)}">`).join("");
+  const words = msState.q.toLowerCase().split(/\s+/).filter(Boolean);
+  const pct = s => s.total ? s.done / s.total : 0;
+  const shown = all.filter(s => (!msState.status || s.status === msState.status) && (!msState.lot || s.lot === msState.lot)
+      && words.every(w => `${s.set_num} ${s.name} ${s.lot} ${s.theme} ${s.year} ${s.notes}`.toLowerCase().includes(w)))
+    .sort({ added: (a, b) => b.added - a.added, most: (a, b) => pct(b) - pct(a), least: (a, b) => pct(a) - pct(b),
+            name: (a, b) => a.name.localeCompare(b.name), year: (a, b) => (+a.year || 0) - (+b.year || 0) }[msState.order]);
+  $("#ms-count").textContent = shown.length === all.length ? `${all.length} set${all.length === 1 ? "" : "s"}` : `Showing ${shown.length} of ${all.length}`;
+  $("#ms-shop").hidden = !all.some(s => s.status === "collecting" || s.status === "waiting");
+  $("#ms-empty").hidden = all.length > 0;
+  $("#ms-list").innerHTML = shown.map(s => {
+    const p = Math.round(100 * pct(s)), inPile = expectedSets.some(x => x.info.set_num === s.set_num);
+    return `<div class="mscard" data-set="${esc(s.set_num)}">
+      <div class="mshead">
+        ${s.img ? `<img src="${esc(s.img)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">` : "<span></span>"}
+        <div style="display:grid;gap:6px;min-width:0">
+          <div><span class="label mono">${esc(s.set_num)}${s.year ? ` · ${esc(s.year)}` : ""}${s.theme ? ` · ${esc(s.theme)}` : ""}</span><h3>${esc(s.name)}</h3></div>
+          <div class="progress ${p === 100 ? "good" : ""}"><i style="width:${p}%"></i></div>
+          <span class="muted" style="font-size:13px">${s.total ? `${s.done} of ${s.total} pieces · ${p}%` : "Open Parts to count its pieces"}${s.figTotal ? ` · ${s.figDone} of ${s.figTotal} minifigures` : ""}</span>
+        </div>
+      </div>
+      <div class="row msfields">
+        <select data-ms="status" aria-label="Status">${STATUSES.map(([v, t]) => `<option value="${v}" ${v === s.status ? "selected" : ""}>${t}</option>`).join("")}</select>
+        <input type="text" data-ms="lot" list="ms-lots" value="${esc(s.lot)}" placeholder="Lot, e.g. Gumtree tub, Oct" aria-label="Which lot it came from">
+        <label class="check" title="Sort parts into this set's bin on the Sort tab"><input type="checkbox" data-ms="pile" ${inPile ? "checked" : ""}> Sorting into it</label>
+      </div>
+      <div class="links">${instrLinks(s)}</div>
+      <details class="setblock" data-detail ${msState.open.has(s.set_num) ? "open" : ""}><summary>Parts${s.total ? ` · ${s.total - s.done} missing` : ""}</summary><div class="msparts" data-parts>Loading…</div></details>
+      <div class="row" style="gap:8px">
+        <button class="btn small" type="button" data-ms="shop">What's missing</button>
+        <button class="btn small" type="button" data-ms="inv" title="Count pieces already in your inventory as found">Count from my inventory</button>
+        <button class="btn small" type="button" data-ms="reset">Reset progress</button>
+        <button class="btn small danger" type="button" data-ms="remove">Remove</button>
+      </div>
+      <input type="text" data-ms="notes" value="${esc(s.notes)}" placeholder="Notes (e.g. sails missing, box in shed)" aria-label="Notes">
+      <div data-ms-out></div>
+    </div>`;
+  }).join("");
+  for (const s of shown) { if (msState.open.has(s.set_num)) renderParts(s.set_num); else ensureTotals(s); }
+}
+async function renderParts(num) {
+  const card = document.querySelector(`.mscard[data-set="${CSS.escape(num)}"]`); if (!card) return;
+  const box = card.querySelector("[data-parts]"), s = mySet(num);
+  let st;
+  try { await ensureColours(); st = await setData(num); }
+  catch (e) { box.innerHTML = `<div class="notice bad">${esc(e.message)}</div>`; return; }
+  const before = s.total; updateTotals(s); if (before !== s.total) store.set("mySets", mySets);
+  const lines = setLines(st).map(l => { const k = pKey(l.part_num, l.color_id), h = Math.min(l.quantity, s.have[k] || 0); return { ...l, k, have: h, missing: l.quantity - h }; })
+    .sort((a, b) => (b.missing > 0) - (a.missing > 0) || (a.color_name || "").localeCompare(b.color_name || "") || (a.name || a.part_num).localeCompare(b.name || b.part_num));
+  const fkey = `ms:${num}`, kinds = lines.map(l => ({ c: l.color_name, k: partCat(l.part_num, l.cat_id) }));
+  const figs = (st.figs || []).map(f => ({ ...f, k: fKey(f.fig_num), have: Math.min(f.quantity, s.have[fKey(f.fig_num)] || 0) }));
+  box.innerHTML = `${figs.length ? `<div class="figs"><h3>Minifigures · ${figs.reduce((a, f) => a + f.have, 0)} of ${figs.reduce((a, f) => a + f.quantity, 0)}</h3>${figs.map(f => `<div class="figrow ${f.have < f.quantity ? "missing" : ""}">
+      ${f.img ? `<img src="${esc(f.img)}" alt="" loading="lazy">` : "<span></span>"}
+      <div style="min-width:0"><b>${esc(f.name)}</b><div class="mono muted" style="font-size:12px">${esc(f.fig_num)}</div></div>
+      <span class="qty"><button type="button" data-hk="${esc(f.k)}" data-d="-1" aria-label="One fewer">−</button><span>${f.have}/${f.quantity}</span><button type="button" data-hk="${esc(f.k)}" data-d="1" aria-label="One more">+</button></span>
+    </div>`).join("")}</div>
+    <p class="muted" style="margin:0;font-size:13px">A whole minifigure counts as the figure; its loose head, torso and legs are counted in the parts below.</p>` : ""}
+    ${filterBar(fkey, kinds)}
+    <div class="table-wrap"><table data-fkey="${esc(fkey)}">
+      <thead><tr><th></th>${sortTh("Part")}${sortTh("Name")}${sortTh("Colour")}${sortTh("Need", "num")}${sortTh("Found", "num")}${sortTh("Missing", "num")}</tr></thead>
+      <tbody>${lines.map((l, j) => { const blc = blColour(l.color_name), img = l.img || blImg(l, blc); return `<tr class="${l.have === 0 ? "missing" : l.missing ? "partial" : ""}" ${rowData(`${l.part_num} ${(l.bl_ids || []).join(" ")} ${l.name || ""}`, kinds[j].c, kinds[j].k)}>
+        <td>${img ? `<img src="${esc(img)}" alt="" loading="lazy" onerror="this.remove()">` : ""}</td>
+        <td class="mono"><a href="${esc(blUrl("part", blIdOf(l), blc))}" target="_blank" rel="noopener">${esc(l.part_num)}</a></td>
+        <td>${esc(l.name || "")}</td>
+        <td><span class="row" style="gap:6px;flex-wrap:nowrap">${l.rgb ? `<span class="swatch" style="background:#${esc(l.rgb)}"></span>` : swatch(l.color_name)}${esc(l.color_name)}</span></td>
+        <td class="num">${l.quantity}</td>
+        <td class="num" data-v="${l.have}"><span class="qty"><button type="button" data-hk="${esc(l.k)}" data-d="-1" aria-label="One fewer">−</button><span>${l.have}</span><button type="button" data-hk="${esc(l.k)}" data-d="1" aria-label="One more">+</button></span></td>
+        <td class="num" data-v="${l.missing}"><b>${l.missing || ""}</b></td></tr>`; }).join("")}</tbody></table></div>`;
+  applyTable(fkey);
+}
+function setsResults(sets) {                         // what each set still needs, for the shopping list
+  return sets.map(s => {
+    const st = setCache.get(s.set_num) || expectedSets.find(x => x.info.set_num === s.set_num);
+    const lines = setLines(st).map(l => { const h = Math.min(l.quantity, s.have[pKey(l.part_num, l.color_id)] || 0); return { ...l, have: h, missing: l.quantity - h }; });
+    return { info: st.info, lines, figs: [] };
+  });
+}
+$("#ms-add-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const raw = $("#ms-add").value.trim(); if (!raw) return;
+  const num = normSet(raw), err = $("#ms-error"), btn = $("#ms-add-btn");
+  err.hidden = true;
+  if (mySet(num)) { toast(`${num} is already in My sets`); return; }
+  await loadIndex();
+  if (!hasRb()) { err.textContent = "Adding sets needs Rebrickable's database (loading…) or a free Rebrickable API key in Settings."; err.hidden = false; return; }
+  btn.disabled = true; btn.textContent = "Adding…";
+  try { await ensureColours(); ensureMySet(await setData(num)); $("#ms-add").value = ""; saveMySets(); }
+  catch (ex) { err.textContent = ex.message; err.hidden = false; }
+  finally { btn.disabled = false; btn.textContent = "Add set"; }
+});
+$("#ms-q").addEventListener("input", () => { msState.q = $("#ms-q").value; renderMySets(); });
+for (const k of ["status", "lot", "order"]) $(`#ms-${k}`).addEventListener("change", () => { msState[k] = $(`#ms-${k}`).value; renderMySets(); });
+$("#ms-list").addEventListener("toggle", e => {
+  const d = e.target.closest && e.target.closest("[data-detail]"); if (!d) return;
+  const num = d.closest(".mscard").dataset.set;
+  if (d.open) { msState.open.add(num); renderParts(num); } else msState.open.delete(num);
+}, true);
+$("#ms-list").addEventListener("change", async e => {
+  const el = e.target, card = el.closest(".mscard"); if (!card || !el.dataset.ms) return;
+  const s = mySet(card.dataset.set); if (!s) return;
+  s.edited = Date.now();
+  if (el.dataset.ms === "status") s.status = el.value;
+  if (el.dataset.ms === "lot") s.lot = el.value.trim();
+  if (el.dataset.ms === "notes") s.notes = el.value.trim();
+  if (el.dataset.ms === "pile") {
+    if (el.checked) { try { await ensureColours(); const st = await setData(s.set_num); if (!expectedSets.some(x => x.info.set_num === s.set_num)) { expectedSets.push(st); expectedChanged(); } } catch (ex) { toast(ex.message); } }
+    else { expectedSets = expectedSets.filter(x => x.info.set_num !== s.set_num); expectedChanged(); }
+    toast(el.checked ? `Sorting into ${s.name}: it has a bin on the Sort tab` : `${s.name} no longer has a bin on the Sort tab`);
+  }
+  saveMySets();
+});
+$("#ms-list").addEventListener("click", async e => {
+  const card = e.target.closest(".mscard"); if (!card) return;
+  const num = card.dataset.set, s = mySet(num);
+  const h = e.target.closest("[data-hk]");
+  if (h) { changeHave(num, h.dataset.hk, +h.dataset.d); renderParts(num); return; }
+  const b = e.target.closest("button[data-ms]"); if (!b || !s) return;
+  const out = card.querySelector("[data-ms-out]");
+  if (b.dataset.ms === "shop") {
+    try { await ensureColours(); await setData(num); out.innerHTML = `<div class="panel">${shopBlock(setsResults([s]), `Missing from ${s.name}`, "Every piece this set still needs, ready to buy on BrickLink.")}</div>`; applyTables(out); }
+    catch (ex) { toast(ex.message); }
+  }
+  if (b.dataset.ms === "inv") {
+    try {
+      await ensureColours();
+      const st = await setData(num), lookup = Core.buildColorLookup(rbColors);
+      const r = Core.compareSet(setLines(st), inventory, lookup);
+      let more = 0;
+      for (const l of r.lines) { const k = pKey(l.part_num, l.color_id), cur = s.have[k] || 0; if (l.have > cur) { more += l.have - cur; s.have[k] = l.have; } }
+      needCache = null; updateTotals(s); saveMySets(); if (msState.open.has(num)) renderParts(num);
+      toast(more ? `Counted ${more} more piece${more === 1 ? "" : "s"} from your inventory` : "Nothing more for this set in your inventory");
+    } catch (ex) { toast(ex.message); }
+  }
+  if (b.dataset.ms === "reset") {
+    if (b.dataset.sure !== "1") { b.dataset.sure = "1"; b.textContent = "Tap again to reset"; setTimeout(() => { b.dataset.sure = ""; b.textContent = "Reset progress"; }, 4000); return; }
+    s.have = {}; if (s.status === "complete") s.status = "collecting";
+    needCache = null; updateTotals(s); saveMySets(); toast(`${s.name}: progress reset`);
+  }
+  if (b.dataset.ms === "remove") {
+    if (b.dataset.sure !== "1") { b.dataset.sure = "1"; b.textContent = "Tap again to remove"; setTimeout(() => { b.dataset.sure = ""; b.textContent = "Remove"; }, 4000); return; }
+    s.removed = true; s.edited = Date.now();
+    if (expectedSets.some(x => x.info.set_num === num)) { expectedSets = expectedSets.filter(x => x.info.set_num !== num); expectedChanged(); }
+    needCache = null; saveMySets(); toast(`${s.name} removed from My sets`);
+  }
+});
+$("#ms-list").addEventListener("focusout", e => { if (e.target.dataset && (e.target.dataset.ms === "lot" || e.target.dataset.ms === "notes")) e.target.dispatchEvent(new Event("change", { bubbles: true })); });
+$("#ms-shop").addEventListener("click", async () => {
+  const sets = liveSets().filter(s => s.status === "collecting" || s.status === "waiting");
+  try {
+    await ensureColours();
+    for (const s of sets) await setData(s.set_num);
+    $("#ms-shop-out").innerHTML = `<div class="panel">${shopBlock(setsResults(sets), "Missing from your unfinished sets",
+      `Everything the ${sets.length} set${sets.length === 1 ? "" : "s"} you're still collecting need${sets.length === 1 ? "s" : ""}, added up, minifigure parts included.`)}</div>`;
+    applyTables($("#ms-shop-out"));
+    $("#ms-shop-out").scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (ex) { toast(ex.message); }
+});
+$("#ms-go-scan").addEventListener("click", () => { show("set"); $("#suggest-panel").scrollIntoView({ behavior: "smooth", block: "start" }); });
+
+// =================== TRAINING PHOTOS: keep what you confirm, for training your own models ===================
+// When you add parts to your inventory, each part's photo is kept with its label (what it really is, and
+// whether you corrected Brickognize), and each scan photo is kept with a box around every item you left in.
+// They stay in this browser (IndexedDB) until you download them as a zip for the training notebooks.
+const TRAIN_MAX = { crop: 5000, photo: 800 };
+const trainOn = () => store.get("saveTraining", true);
+function trainDo(mode, fn) {
+  return idb().then(db => new Promise((res, rej) => {
+    const tx = db.transaction("training", mode), st = tx.objectStore("training"), req = fn(st);
+    tx.oncomplete = () => res(req && req.result); tx.onerror = () => rej(tx.error); tx.onabort = () => rej(tx.error);
+  }));
+}
+async function trainCounts() {
+  const all = await trainDo("readonly", st => st.getAll());
+  const n = { crop: 0, photo: 0, bytes: 0 };
+  for (const r of all) { n[r.type]++; n.bytes += r.blob ? r.blob.size : 0; }
+  return n;
+}
+async function trainAdd(rec) {
+  if (!trainOn() || !rec.blob) return null;
+  try {
+    const n = await trainDo("readonly", st => st.count());
+    if (n >= TRAIN_MAX.crop + TRAIN_MAX.photo) return null;
+    return await trainDo("readwrite", st => st.add({ ...rec, t: Date.now() }));
+  } catch (e) { console.warn("training photo not saved", e); return null; }
+}
+const trainDel = id => trainDo("readwrite", st => st.delete(id)).catch(() => {});
+function labelOf(row, r) {                           // what it is (an inventory row) and what Brickognize first said
+  const top = r && r.items && r.items[0];
+  return { kind: Core.rowType(row), part_id: row.part_id, part_name: row.part_name || "", color_name: row.color_name || "",
+    bricklink_id: row.bricklink_id || "", rb_part: row.rb_part || "", rb_fig: row.rb_fig || "",
+    guess_id: top ? top.id : "", guess_score: top ? Math.round((top.score || 0) * 1000) / 1000 : "",
+    guess_colour: r && r.colors && r.colors[0] ? r.colors[0].name : "",
+    corrected: !!(r && (r.touched || r.item !== 0)) };
+}
+// A scan photo, at most 2048 px, with every item you kept boxed (in that photo's pixels).
+async function photoRecord(p, labels) {
+  const k = Math.min(1, 2048 / Math.max(p.w, p.h)), w = Math.round(p.w * k), h = Math.round(p.h * k), f = k / p.scale;
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  c.getContext("2d").drawImage(p.img, 0, 0, w, h);
+  const blob = await new Promise(res => c.toBlob(res, "image/jpeg", 0.9));
+  const boxes = p.boxes.map((b, i) => ({ i, b })).filter(({ i }) => !p.off.has(i))
+    .map(({ i, b }) => { const [a, c, d, e] = b.tight || [b.x0, b.y0, b.x1, b.y1];      // the item's own outline, without the padding added for identifying
+      return { x0: Math.round(a * f), y0: Math.round(c * f), x1: Math.round(d * f), y1: Math.round(e * f), label: labels.get(i + 1) || null }; });
+  return { type: "photo", blob, meta: { name: p.name, w, h, boxes, source: "scan" } };
+}
+// Called when the Check and add list is added to the inventory.
+function trainFromReview(rows) {
+  if (!trainOn()) return;
+  const jobs = [], byPhoto = new Map();
+  for (const { r, row } of rows) {
+    if (r.blobs && r.blobs[0]) jobs.push({ type: "crop", blob: r.blobs[0], meta: { ...labelOf(row, r), photo: r.photo, box: r.n, views: r.blobs.length, source: "scan" } });
+    if (r.photoId != null) { if (!byPhoto.has(r.photoId)) byPhoto.set(r.photoId, new Map()); byPhoto.get(r.photoId).set(r.n, { part_id: row.part_id, color_name: row.color_name || "", kind: Core.rowType(row) }); }
+  }
+  const ps = photos.filter(p => byPhoto.has(p.id) && !p.trained);
+  for (const p of ps) p.trained = true;
+  (async () => {
+    for (const j of jobs) await trainAdd(j);
+    for (const p of ps) await trainAdd(await photoRecord(p, byPhoto.get(p.id)));
+    renderTraining();
+  })();
+}
+// Sort cards: a part's photo is kept once it's added to the inventory, and dropped again if the card is removed.
+async function trainFromCard(c) {
+  if (!trainOn() || c.sample || !c.r || !c.r.blobs || !c.r.blobs[0]) return;
+  c.sample = -1;
+  const id = await trainAdd({ type: "crop", blob: c.r.blobs[0], meta: { ...labelOf(cardRow(c), c.r), photo: "camera", box: c.id, views: 1, source: "sort", condition: c.cond } });
+  c.sample = id || 0;
+}
+async function renderTraining() {
+  const el = $("#train-state"); if (!el) return;
+  $("#train-on").checked = trainOn();
+  try {
+    const n = await trainCounts();
+    el.textContent = `${n.crop} part photo${n.crop === 1 ? "" : "s"} and ${n.photo} full photo${n.photo === 1 ? "" : "s"} saved here (${n.bytes < 1e6 ? `${Math.max(1, Math.round(n.bytes / 1e3))} KB` : `${(n.bytes / 1e6).toFixed(1)} MB`}).`;
+    $("#train-dl").disabled = $("#train-clear").disabled = !(n.crop + n.photo);
+  } catch { el.textContent = "This browser can't keep training photos."; $("#train-dl").disabled = true; }
+}
+// ---------- zip (stored, no compression: the photos are JPEGs already) ----------
+const CRC_TABLE = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+function crc32(bytes) { let c = 0xffffffff; for (let i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; }
+async function makeZip(files) {                      // files: [{name, data: Blob | string}]
+  const enc = new TextEncoder(), parts = [], central = [];
+  const now = new Date(), dosTime = (now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1);
+  const dosDate = ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
+  let offset = 0;
+  for (const f of files) {
+    const data = typeof f.data === "string" ? enc.encode(f.data) : new Uint8Array(await f.data.arrayBuffer());
+    const name = enc.encode(f.name), crc = crc32(data);
+    const h = new DataView(new ArrayBuffer(30));
+    h.setUint32(0, 0x04034b50, true); h.setUint16(4, 20, true); h.setUint16(6, 0x0800, true); h.setUint16(8, 0, true);
+    h.setUint16(10, dosTime, true); h.setUint16(12, dosDate, true); h.setUint32(14, crc, true);
+    h.setUint32(18, data.length, true); h.setUint32(22, data.length, true); h.setUint16(26, name.length, true); h.setUint16(28, 0, true);
+    parts.push(h.buffer, name, data);
+    const c = new DataView(new ArrayBuffer(46));
+    c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true); c.setUint16(8, 0x0800, true); c.setUint16(10, 0, true);
+    c.setUint16(12, dosTime, true); c.setUint16(14, dosDate, true); c.setUint32(16, crc, true); c.setUint32(20, data.length, true);
+    c.setUint32(24, data.length, true); c.setUint16(28, name.length, true); c.setUint32(42, offset, true);
+    central.push(c.buffer, name);
+    offset += 30 + name.length + data.length;
+  }
+  const cdSize = central.reduce((s, b) => s + (b.byteLength ?? b.length), 0);
+  const end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true); end.setUint16(8, files.length, true); end.setUint16(10, files.length, true);
+  end.setUint32(12, cdSize, true); end.setUint32(16, offset, true);
+  return new Blob([...parts, ...central, end.buffer], { type: "application/zip" });
+}
+const safeName = s => String(s || "unknown").replace(/[^A-Za-z0-9._-]+/g, "_").slice(0, 60) || "unknown";
+async function trainingZip() {
+  const all = await trainDo("readonly", st => st.getAll()), files = [], rows = [], boxesJson = [];
+  let nc = 0, np = 0;
+  for (const r of all) {
+    const d = new Date(r.t).toISOString().slice(0, 10), m = r.meta || {};
+    if (r.type === "crop") {
+      const label = `${safeName(m.part_id)}__${safeName(m.kind === "fig" ? "minifigure" : m.color_name || "colour_unknown")}`;
+      const file = `parts/${label}/${d}_${r.id}.jpg`;
+      files.push({ name: file, data: r.blob }); nc++;
+      rows.push({ file, kind: m.kind, part_id: m.part_id, part_name: m.part_name, color_name: m.color_name, bricklink_id: m.bricklink_id,
+        rb_part: m.rb_part, rb_fig: m.rb_fig, brickognize_guess: m.guess_id, guess_score: m.guess_score, guess_colour: m.guess_colour,
+        corrected: m.corrected ? "yes" : "no", photos_of_item: m.views || 1, condition: m.condition || "", source: m.source, from_photo: m.photo || "", date: d });
+    } else {
+      const stem = `${d}_${r.id}`;
+      files.push({ name: `detection/images/${stem}.jpg`, data: r.blob }); np++;
+      files.push({ name: `detection/labels/${stem}.txt`, data: m.boxes.map(b => `0 ${((b.x0 + b.x1) / 2 / m.w).toFixed(6)} ${((b.y0 + b.y1) / 2 / m.h).toFixed(6)} ${((b.x1 - b.x0) / m.w).toFixed(6)} ${((b.y1 - b.y0) / m.h).toFixed(6)}`).join("\n") + "\n" });
+      boxesJson.push({ image: `${stem}.jpg`, size: [m.w, m.h], from_photo: m.name, boxes: m.boxes });
+    }
+  }
+  files.push({ name: "parts/labels.csv", data: Core.toCSV(rows, ["file", "kind", "part_id", "part_name", "color_name", "bricklink_id", "rb_part", "rb_fig",
+    "brickognize_guess", "guess_score", "guess_colour", "corrected", "photos_of_item", "condition", "source", "from_photo", "date"]) });
+  files.push({ name: "detection/boxes.json", data: JSON.stringify(boxesJson) });
+  files.push({ name: "detection/data.yaml", data: "path: .\ntrain: images\nval: images\nnames:\n  0: item\n" });
+  files.push({ name: "README.txt", data: `Brick Sorter training photos, exported ${new Date().toISOString().slice(0, 16).replace("T", " ")}
+
+parts/       ${nc} photos of single parts and minifigures you confirmed, one folder per part and colour
+             (folder name: part number__colour). parts/labels.csv has each photo's label, what Brickognize
+             guessed first, and whether you corrected it ("corrected" = a hard example worth having).
+detection/   ${np} full scan photos with a box around every item you kept, in YOLO format
+             (images/, labels/, class 0 = item), plus boxes.json with each box's part where known.
+
+To use them for the pile detector: put this zip in your brick-detector folder and run
+train_pile_detector.ipynb; step 1b adds them to the training data.
+` });
+  return { blob: await makeZip(files), nc, np };
+}
+$("#train-on").addEventListener("change", () => { store.set("saveTraining", $("#train-on").checked); renderTraining(); });
+$("#train-dl").addEventListener("click", async () => {
+  const b = $("#train-dl"); b.disabled = true; b.textContent = "Packing…";
+  try {
+    const { blob, nc, np } = await trainingZip();
+    const url = URL.createObjectURL(blob);
+    const a = Object.assign(document.createElement("a"), { href: url, download: `brick-sorter-training-${new Date().toISOString().slice(0, 10)}.zip` });
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 5000);
+    toast(`Downloaded ${nc} part photos and ${np} full photos`);
+  } catch (e) { toast(`Couldn't make the zip: ${e.message}`); }
+  finally { b.disabled = false; b.textContent = "Download (.zip)"; }
+});
+$("#train-clear").addEventListener("click", async () => {
+  const b = $("#train-clear");
+  if (b.dataset.sure !== "1") { b.dataset.sure = "1"; b.textContent = "Tap again to delete"; setTimeout(() => { b.dataset.sure = ""; b.textContent = "Delete them"; }, 4000); return; }
+  b.dataset.sure = ""; b.textContent = "Delete them";
+  await trainDo("readwrite", st => st.clear()).catch(() => {});
+  renderTraining(); toast("Training photos deleted from this device");
 });
 
 // =================== ACCOUNT: sign in and sync with Supabase ===================
@@ -3891,6 +4342,7 @@ async function signOut(clear) {
     inventory = []; saveInventory();
     expectedSets = []; expectedChanged();
     sortSession = { started: Date.now(), sorted: [], counts: {}, cards: [] }; sortCards = []; needCache = null; saveSort(); renderSort();
+    mySets = []; store.set("mySets", mySets); renderMySets();
     syncBase = null; store.set("syncBase", null);
   }
   renderAccount();
@@ -3907,11 +4359,26 @@ function localInv() {
 const sameItem = (a, b) => (a ? a.q : 0) === (b ? b.q : 0) && (!a || !b || !a.q || a.d === b.d);
 function localState() {
   const sort = { ...sortSession, cards: (sortSession.cards || []).map(c => ({ ...c, thumb: "" })) };
-  return {
+  const out = {
     pile: { sets: expectedSets.map(st => st.info.set_num) },
     sort,
     prefs: Object.fromEntries(PREF_KEYS.map(k => [k, store.get(k, null)]).filter(([, v]) => v !== null)),
   };
+  for (const m of mySets) out["set:" + m.set_num] = m;           // one row per set (removed ones stay as a marker)
+  return out;
+}
+// A set from the account: replace this device's copy. If both changed, keep the most pieces found for each part.
+function applySetRow(v, mergeWithLocal) {
+  if (!v || !v.set_num) return;
+  const i = mySets.findIndex(x => x.set_num === v.set_num);
+  if (i >= 0 && mergeWithLocal) {
+    const mine = mySets[i], have = { ...v.have };
+    for (const [k, n] of Object.entries(mine.have || {})) have[k] = Math.max(have[k] || 0, n);
+    const newer = (v.edited || 0) > (mine.edited || 0) ? v : mine;
+    mySets[i] = { ...mine, ...newer, have, removed: newer.removed };
+  } else if (i >= 0) mySets[i] = v; else mySets.push(v);
+  const m = mySets.find(x => x.set_num === v.set_num); if (m) { updateTotals(m); ensureTotals(m); }
+  needCache = null; store.set("mySets", mySets); renderMySets(); renderSort();
 }
 const hashOf = v => JSON.stringify(v);
 async function fetchAll(table, since) {
@@ -3967,7 +4434,7 @@ async function syncOnce({ first } = {}) {
     for (const r of rows) base.lastPull = r.updated_at;
     if (choice === "account" || choice === "combine") {
       if (choice === "account" && inventory.length) store.set("inventoryBackup", { at: new Date().toISOString(), rows: inventory });
-      if (choice === "account") inventory = [];
+      if (choice === "account") { inventory = []; mySets = []; }
       for (const r of remote) {
         const i = inventory.findIndex(x => invKey(x) === r.item_key);
         if (choice === "combine" && i >= 0) inventory[i].quantity += r.quantity; else setLocalItem(r.item_key, r.quantity, r.data || {});
@@ -3977,8 +4444,11 @@ async function syncOnce({ first } = {}) {
         if (s.key === "pile") await applyPile(choice === "combine" ? [...new Set(expectedSets.map(st => st.info.set_num).concat(s.value.sets || []))] : s.value.sets || []);
         if (s.key === "sort" && choice === "account") applySort(s.value);
         if (s.key === "prefs") applyPrefs(s.value);
+        if (s.key.startsWith("set:")) applySetRow(s.value, choice === "combine");
       } catch (e) { console.warn("couldn't apply", s.key, e); }
     }
+    if (choice === "device")                         // sets only in the account: mark them removed there
+      for (const s of states) if (s.key.startsWith("set:") && s.value && !mySets.some(m => m.set_num === s.value.set_num)) mySets.push({ ...s.value, removed: true });
     for (const s of states) base.state[s.key] = { at: s.updated_at, h: choice === "account" ? hashOf(localState()[s.key]) : "" };
     syncBase = base; store.set("syncBase", syncBase);
   }
@@ -3987,11 +4457,30 @@ async function syncOnce({ first } = {}) {
   for (const [k, v] of Object.entries(cur)) if (!sameItem(base[k], v)) items.push({ user_id: uid, item_key: k, quantity: v.q, data: JSON.parse(v.d) });
   for (const [k, v] of Object.entries(base)) if (!cur[k] && v.q > 0) items.push({ user_id: uid, item_key: k, quantity: 0, data: JSON.parse(v.d) });
   if (items.length) for (const r of await upsert("inventory_items", items, "user_id,item_key")) base[r.item_key] = { q: r.quantity, d: fieldsOf(r.data || {}) };
+  // the sets, pile, bins and preferences: fetch first, so a set changed on two devices is merged, not overwritten
+  const st0 = localState();
+  for (const s of await fetchAll("user_state")) {
+    const b = syncBase.state[s.key];
+    if (b && b.at === s.updated_at) continue;                 // nothing new
+    const mine = st0[s.key], dirty = mine !== undefined && (!b || b.h !== hashOf(mine));
+    try {
+      if (dirty) {                                             // changed here too: this device's version wins (sets are merged)
+        if (s.key.startsWith("set:")) applySetRow(s.value, true);
+        syncBase.state[s.key] = { at: s.updated_at, h: b ? b.h : "" };
+        continue;
+      }
+      if (s.key === "pile") await applyPile(s.value.sets || []);
+      if (s.key === "sort") applySort(s.value);
+      if (s.key === "prefs") applyPrefs(s.value);
+      if (s.key.startsWith("set:")) applySetRow(s.value);
+      syncBase.state[s.key] = { at: s.updated_at, h: hashOf(localState()[s.key]) };
+    } catch (e) { console.warn("couldn't apply", s.key, e); }
+  }
   const st = localState(), dirty = [];
   for (const k of Object.keys(st)) if (!syncBase.state[k] || syncBase.state[k].h !== hashOf(st[k])) dirty.push({ user_id: uid, key: k, value: st[k] });
   if (dirty.length) for (const r of await upsert("user_state", dirty, "user_id,key")) syncBase.state[r.key] = { at: r.updated_at, h: hashOf(st[r.key]) };
   store.set("syncBase", syncBase);
-  // fetch what changed elsewhere; a part changed here too since the last sync keeps this device's version
+  // the inventory: fetch what changed elsewhere; a part changed here too since the last sync keeps this device's version
   let changed = false;
   const rows = await fetchAll("inventory_items", syncBase.lastPull), now = localInv();
   for (const r of rows) {
@@ -4001,18 +4490,6 @@ async function syncOnce({ first } = {}) {
     if (!syncBase.lastPull || r.updated_at > syncBase.lastPull) syncBase.lastPull = r.updated_at;
   }
   if (changed) saveInventory(false);
-  const st2 = localState();
-  for (const s of await fetchAll("user_state")) {
-    const b = syncBase.state[s.key];
-    if (b && b.at === s.updated_at) continue;                 // nothing new
-    if (b && b.h && b.h !== hashOf(st2[s.key])) continue;      // changed here too: this device's version is sent next time
-    try {
-      if (s.key === "pile") await applyPile(s.value.sets || []);
-      if (s.key === "sort") applySort(s.value);
-      if (s.key === "prefs") applyPrefs(s.value);
-      syncBase.state[s.key] = { at: s.updated_at, h: hashOf(localState()[s.key]) };
-    } catch (e) { console.warn("couldn't apply", s.key, e); }
-  }
   syncBase.at = Date.now();
   store.set("syncBase", syncBase);
 }

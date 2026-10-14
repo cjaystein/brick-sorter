@@ -308,7 +308,8 @@ For rebuilding sets from a bulk lot. Web app: **Sort** tab.
 Notes:
 
 - The bins start empty, whatever is already in your inventory, and are kept
-  if you reload. **Start a new sort** empties them.
+  if you reload. **Start a new sort** empties them; what each set has found
+  stays in **My sets**.
 - Confident matches are added to your inventory by themselves (turn this off
   under **Bin settings** if the parts are already in it). Others have an
   **Add to inventory** button.
@@ -319,6 +320,47 @@ Notes:
 - Phones only allow the live camera on a secure (https) page, so use the
   website, or `localhost` on your computer. Through `serve.py --lan` use
   **Take a photo instead**.
+
+## My sets
+
+The **My sets** tab lists every set you're rebuilding, with:
+
+- **Progress**: pieces and minifigures found, from parts sorted into the set's
+  bin on the Sort tab, plus any you tick off by hand under **Parts** (− and +
+  next to each part). **Count from my inventory** counts what's already in
+  your inventory. Progress is kept when you start a new sort, so a set can fill
+  up over several lots.
+- **Status** (collecting parts, waiting on bought parts, all parts found,
+  built, sold; it switches to "all parts found" by itself), the **lot** it
+  came from, and **notes**.
+- **Sorting into it**: tick to give the set a bin on the Sort tab (the same as
+  adding it to Sets in this pile).
+- **Instructions** links (LEGO for most sets from 2002 on, Brickset for older
+  scanned ones), plus Rebrickable and BrickLink.
+- **What's missing** for one set, or **Shopping list for all unfinished sets**,
+  both as a BrickLink wanted list.
+
+Filter by status, lot or words, and sort by progress, name or year. Signed in,
+each set syncs as its own row; if two devices change the same set before
+syncing, the most pieces found for each part is kept.
+
+## Training photos
+
+With **Settings → Training photos** ticked (the default), adding parts to your
+inventory keeps:
+
+- a photo of each part with its label (what it really is, what Brickognize
+  first guessed, and whether you corrected it), from the Scan tab and from
+  sort cards you add to the inventory, and
+- each scan photo with a tight box around every item you left in.
+
+They stay on that device. **Download (.zip)** gives `parts/` (one folder per
+part and colour, plus `labels.csv`) and `detection/` (photos and boxes in YOLO
+format). Put the zip in your `brick-detector` folder and step 2b of
+`train_pile_detector.ipynb` adds the photos to the training data (or
+`python make_piles.py generate --extra path/to/detection`). The single-part
+photos are kept for training a part recogniser later. Download them now and
+then: iPhones can clear a website's storage after a few weeks without a visit.
 
 ## Shopping list and BrickLink wanted list
 

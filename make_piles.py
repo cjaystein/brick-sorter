@@ -315,8 +315,10 @@ def draw_boxes(img, boxes):
     return out
 
 
-def generate(out, count=4000, val_fraction=0.1, seed=1, workers=None, include_real=True):
-    """Make `count` labelled piles in out/dataset (YOLO format). Returns the data.yaml path."""
+def generate(out, count=4000, val_fraction=0.1, seed=1, workers=None, include_real=True, extra_real=None):
+    """Make `count` labelled piles in out/dataset (YOLO format). Returns the data.yaml path.
+    extra_real: folders of real labelled photos to add (images/*.jpg with labels/*.txt in YOLO format),
+    e.g. the "detection" folder of a training zip downloaded from the Brick Sorter web app."""
     out = Path(out)
     cut_files = sorted((out / "cutouts").glob("*.png"))
     plate_files = sorted((out / "backgrounds").glob("*.jpg"))
@@ -363,6 +365,15 @@ def generate(out, count=4000, val_fraction=0.1, seed=1, workers=None, include_re
                 (ds / "labels" / "train" / f"real_{src.stem}.txt").write_text(_yolo_lines(r["boxes"], *r["size"]))
                 n_real += 1
 
+    n_app = 0
+    for k, folder in enumerate(extra_real or []):            # photos you confirmed in the web app
+        folder = Path(folder)
+        for img in list_images(folder / "images"):
+            lab = folder / "labels" / f"{img.stem}.txt"
+            if lab.exists() and lab.read_text().strip():
+                shutil.copy(img, ds / "images" / "train" / f"app{k}_{img.name}")
+                shutil.copy(lab, ds / "labels" / "train" / f"app{k}_{img.stem}.txt")
+                n_app += 1
     (ds / "data.yaml").write_text(f"path: {ds.resolve().as_posix()}\ntrain: images/train\nval: images/val\nnames:\n  0: item\n")
     # preview of the first few piles with their boxes
     tiles = []
@@ -381,7 +392,7 @@ def generate(out, count=4000, val_fraction=0.1, seed=1, workers=None, include_re
         if rows:
             cv2.imwrite(str(out / "piles_preview.jpg"), np.vstack(rows), [cv2.IMWRITE_JPEG_QUALITY, 85])
     print(f"\nMade {count} piles with {total} labelled items (about {total // max(1, count)} per pile), "
-          f"plus {n_real} of your real photos. Dataset: {ds / 'data.yaml'}")
+          f"plus {n_real} of your real photos{f' and {n_app} labelled photos from the web app' if n_app else ''}. Dataset: {ds / 'data.yaml'}")
     print(f"Preview: {out / 'piles_preview.jpg'}")
     return ds / "data.yaml"
 
@@ -399,11 +410,12 @@ def main():
     g.add_argument("--count", type=int, default=4000, help="how many piles to make (default 4000)")
     g.add_argument("--workers", type=int, default=None, help="processes to use (default: CPU cores - 1, at most 8)")
     g.add_argument("--seed", type=int, default=1)
+    g.add_argument("--extra", nargs="*", default=[], help="folders of labelled photos to add, e.g. the detection folder from the web app's training zip")
     args = ap.parse_args()
     if args.cmd == "extract":
         extract(args.photos, args.out, args.backgrounds, args.sensitivity)
     else:
-        generate(args.out, args.count, seed=args.seed, workers=args.workers)
+        generate(args.out, args.count, seed=args.seed, workers=args.workers, extra_real=args.extra)
 
 
 if __name__ == "__main__":
