@@ -17,7 +17,8 @@ File layout (all numbers little-endian):
   "RBIX" + uint32 header length + header JSON (UTF-8)
   then the arrays listed in header["arrays"], each a typed array of the given
   type and length, one after another.
-Header: built (date), parts [part_num], colors [[id, name, rgb]], themes {id: name},
+Header: built (date), parts [part_num], part_names [name], part_cats [category id] (same order as parts),
+  categories {id: name}, colors [[id, name, rgb]], themes {id: name},
   sets [[set_num, name, year, theme_id, num_parts, img]], figs [[fig_num, name, num_parts]].
 Owners are the sets followed by the figures. For owner i, its parts are
   lines[line_start[i] : line_start[i+1]] in line_part (part index), line_color
@@ -37,7 +38,7 @@ import urllib.request
 from array import array
 from pathlib import Path
 
-FILES = ["sets", "minifigs", "inventories", "inventory_parts", "inventory_minifigs", "colors", "themes"]
+FILES = ["sets", "minifigs", "inventories", "inventory_parts", "inventory_minifigs", "colors", "themes", "parts", "part_categories"]
 URL = "https://cdn.rebrickable.com/media/downloads/{}.csv.gz"
 
 
@@ -112,10 +113,19 @@ def build(folder, out):
 
     def img(sn, url):
         return "" if url == f"https://cdn.rebrickable.com/media/sets/{sn.lower()}.jpg" else (url or "-")
+    names, cats = {}, {}
+    if (Path(folder) / "parts.csv.gz").exists():
+        for r in rows(folder, "parts"):
+            names[r["part_num"]] = r["name"]
+            cats[r["part_num"]] = int(r["part_cat_id"] or 0)
+    categories = {r["id"]: r["name"] for r in rows(folder, "part_categories")} if (Path(folder) / "part_categories.csv.gz").exists() else {}
     header = {
         "built": time.strftime("%Y-%m-%d"),
         "source": "Rebrickable (rebrickable.com/downloads)",
         "parts": list(parts),
+        "part_names": [names.get(p, "") for p in parts],
+        "part_cats": [cats.get(p, 0) for p in parts],
+        "categories": categories,
         "colors": [[int(r["id"]), r["name"], r["rgb"]] for r in rows(folder, "colors")],
         "themes": {r["id"]: r["name"] for r in rows(folder, "themes")},
         "sets": [[s, sets[s]["name"], int(sets[s]["year"] or 0), int(sets[s]["theme_id"] or 0), int(sets[s]["num_parts"] or 0),

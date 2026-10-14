@@ -20,6 +20,8 @@ Two versions that share the same inventory CSV format:
 | Check a match | Picture + BrickLink/Rebrickable links on each result | `scan_review.html` opens after a scan |
 | Which minifigure? | Tick the loose parts, **Name the figure** | `name-fig` command |
 | Prices | Next to each result, inventory value | `scan --prices`, `value` command |
+| Sort into sets | **Sort** tab: live camera, a bin for each set | – |
+| Buy what's missing | BrickLink wanted list across your sets | Missing list in the Excel report |
 
 ## Taking good photos
 
@@ -281,6 +283,59 @@ Notes:
 - Script options: `--top` (sets checked in full), `--clues` (rare
   combinations looked up), `--max-parts`, `--max-common`.
 
+## Sort into sets (live camera)
+
+For rebuilding sets from a bulk lot. Web app: **Sort** tab.
+
+1. Add the sets you're rebuilding under **Sets in this pile** (Scan tab, or
+   from **Suggest sets**). Each set gets a numbered bin, in that order,
+   followed by bins for rare parts (in 3 sets or fewer), minifigure parts,
+   everything else, and **Check by hand**. Number some tubs to match.
+2. **Start camera** with the phone on a stand pointing down at a tray. Spread
+   5–20 parts with gaps. When the picture is still, each new part is
+   identified and labelled on screen with its bin number, and a card shows
+   the part, its colour and why it goes there. Sweep each part into its bin
+   and spread the next lot; parts already labelled aren't identified again.
+   **Scan now** does it straight away (for a held phone). **Take a photo
+   instead** works the same from a photo.
+3. A part goes to the first set in the list that still needs it in that
+   colour. Spares, rare parts and anything unsure (low confidence, a colour
+   your sets need but Brickognize isn't sure of, faded, damaged or not LEGO)
+   go to the other bins. Change the match, colour or condition on a card and
+   its bin is worked out again.
+
+Notes:
+
+- The bins start empty, whatever is already in your inventory, and are kept
+  if you reload. **Start a new sort** empties them.
+- Confident matches are added to your inventory by themselves (turn this off
+  under **Bin settings** if the parts are already in it). Others have an
+  **Add to inventory** button.
+- Sieve a scoop into small, medium and large first: similar sizes spread out
+  more evenly and scan faster.
+- The page keeps the screen awake while the camera is on. Switching apps stops
+  the camera.
+- Phones only allow the live camera on a secure (https) page, so use the
+  website, or `localhost` on your computer. Through `serve.py --lan` use
+  **Take a photo instead**.
+
+## Shopping list and BrickLink wanted list
+
+**What's still missing** (Sort tab) adds up what every set's bin still needs,
+minifigure parts included. **Check these sets** (Set check tab) does the same
+from your inventory. Either way you get one list across all the sets, each
+part once, with:
+
+- **Copy BrickLink wanted list**: on BrickLink go to Want → Upload, paste it,
+  choose a wanted list, then Verify and Upload. BrickLink's "Buy all" can then
+  find the stores that have the most of it. **Download .xml** gives the same
+  as a file.
+- **Download CSV**, which also lists whole minifigures and any colour
+  BrickLink's list can't take.
+
+Without a Rebrickable key the part numbers are Rebrickable's, which nearly
+always match BrickLink's; with a key, BrickLink's own numbers are used.
+
 ## Minifigures
 
 Photograph minifigures assembled, lying face up and spread out like parts.
@@ -370,15 +425,15 @@ can't be seen, so take the top layer off and photograph again.
 Rebrickable publishes its whole catalogue as files, free to use
 (https://rebrickable.com/downloads/). `build_rb_index.py` downloads them and
 packs every set's parts list, every minifigure and their sets into
-`rb-index.bin.gz` (about 4 MB). With that file next to `brick-sorter.html`,
+`rb-index.bin.gz` (about 5 MB). With that file next to `brick-sorter.html`,
 the app works these out instantly instead of asking Rebrickable one question
 a second:
 
 - **Suggest sets**: every part checked, in about a second.
 - **Rare-part flags** while scanning.
 - **Name the figure**: every minifigure checked.
-- **Set checks** and **Sets in this pile**, even without a Rebrickable key
-  (part names and pictures in set checks still need the key).
+- **Set checks**, **Sets in this pile** and the **Sort** tab's set bins, even
+  without a Rebrickable key (part pictures come from BrickLink instead).
 
 The website (GitHub Pages) has it already: a GitHub job rebuilds it every
 week (`.github/workflows/rb-index.yml`; run it by hand from the repository's

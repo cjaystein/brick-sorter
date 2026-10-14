@@ -234,7 +234,44 @@ details.setblock > summary { cursor: pointer; font-weight: 700; color: var(--acc
   .setcard { grid-template-columns: 1fr; }
   nav button { padding: 6px 10px; }
 }
-@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+/* Sort: live camera, bins and one card per sorted item */
+.cam { position: relative; border-radius: 8px; overflow: hidden; background: #000; }
+.cam video { display: block; width: 100%; height: auto; }
+.cam canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.cam-state { position: absolute; left: 8px; top: 8px; background: rgb(0 0 0 / 0.65); color: #fff; font-size: 13px; font-weight: 700; padding: 4px 10px; border-radius: 999px; }
+.cam-state.busy { background: var(--accent); color: var(--accent-ink); }
+.bins { display: grid; gap: 6px; }
+.bin { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; }
+.bin .no { font: 800 18px/1 var(--display); background: var(--mark); color: #000; border-radius: 8px; height: 36px; display: grid; place-items: center; }
+.bin .no.plain { background: var(--sunken); color: var(--ink); }
+.bin input[type="text"] { width: 100%; padding: 4px 8px; }
+.bin .meter { max-width: none; margin-top: 4px; }
+.bin .meter > i { background: var(--good); }
+.cards { display: grid; gap: 8px; }
+.scard { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px 12px; align-items: center; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.scard.fresh { animation: pop 0.6s ease-out; }
+@keyframes pop { from { transform: scale(0.97); box-shadow: 0 0 0 4px var(--mark); } to { transform: none; box-shadow: none; } }
+.scard.rare { border-color: var(--good); background: color-mix(in srgb, var(--good) 9%, var(--surface)); }
+.scard.check { border-color: var(--warn); }
+.scard.gone { opacity: 0.45; }
+.scard .t { display: grid; gap: 3px; min-width: 0; }
+.scard .t b { overflow-wrap: anywhere; }
+.binbadge { display: grid; justify-items: center; gap: 2px; min-width: 76px; text-align: center; padding: 6px 8px; border-radius: 8px; background: var(--mark); color: #000; }
+.binbadge b { font: 800 22px/1 var(--display); }
+.binbadge small { font-size: 11px; font-weight: 700; line-height: 1.2; max-width: 110px; overflow-wrap: anywhere; }
+.binbadge.check { background: var(--warn-bg); color: var(--warn); }
+.binbadge.rare { background: var(--good); color: #fff; }
+.binbadge.plain { background: var(--sunken); color: var(--ink); }
+.scard .acts { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; font-size: 13px; }
+.scard .acts select { padding: 4px 6px; font-size: 13px; max-width: 100%; }
+.scard .why { grid-column: 1 / -1; font-size: 13px; }
+.shop { display: grid; gap: 10px; }
+@media (max-width: 560px) {
+  .scard { grid-template-columns: auto minmax(0, 1fr); }
+  .scard .binbadge { grid-column: 1 / -1; grid-template-columns: auto minmax(0, 1fr); justify-items: start; align-items: center; text-align: left; gap: 10px; }
+  .binbadge small { max-width: none; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } .scard.fresh { animation: none; } }
 </style>
 </head>
 <body>
@@ -246,6 +283,7 @@ details.setblock > summary { cursor: pointer; font-weight: 700; color: var(--acc
     </div>
     <nav role="tablist" aria-label="Sections">
       <button role="tab" id="tab-scan" aria-selected="true" data-view="scan">Scan</button>
+      <button role="tab" id="tab-sort" aria-selected="false" data-view="sort">Sort</button>
       <button role="tab" id="tab-inv" aria-selected="false" data-view="inv">Inventory<span class="count" id="inv-count">0</span></button>
       <button role="tab" id="tab-set" aria-selected="false" data-view="set">Set check</button>
     </nav>
@@ -373,6 +411,72 @@ details.setblock > summary { cursor: pointer; font-weight: 700; color: var(--acc
         <button class="btn" id="discard-review">Discard</button>
       </div>
     </div>
+  </section>
+
+  <!-- SORT -->
+  <section id="view-sort" class="view" hidden style="display:grid;gap:20px">
+    <div>
+      <h1>Sort into sets</h1>
+      <p class="lede">Point your phone at a tray of spread-out parts. When the picture is still, each new part is identified and labelled with the bin it goes in: one bin for each set you're rebuilding, then rare parts, minifigure parts and everything else.</p>
+    </div>
+
+    <div class="panel" id="cam-panel">
+      <div class="row">
+        <button class="btn primary" type="button" id="cam-start">Start camera</button>
+        <button class="btn" type="button" id="cam-scan" hidden>Scan now</button>
+        <label class="btn" style="cursor:pointer">Take a photo instead<input type="file" id="sort-photo" accept="image/*" hidden></label>
+        <label class="row spacer" style="gap:6px;font-size:14px">Identify as
+          <select id="sort-mode"><option value="parts">Parts</option><option value="mixed">Parts and minifigures</option><option value="figs">Minifigures</option></select></label>
+      </div>
+      <div class="cam" id="cam-wrap" hidden>
+        <video id="cam-video" playsinline muted autoplay></video>
+        <canvas id="cam-overlay"></canvas>
+        <div class="cam-state" id="cam-state">Starting…</div>
+      </div>
+      <div class="notice bad" id="cam-error" hidden></div>
+      <ul class="tips" id="cam-tips">
+        <li><b>Phone on a stand</b>Pointing straight down, so the picture stays still. A held phone keeps moving; tap Scan now instead.</li>
+        <li><b>Sieve by size first</b>Sort a scoop into small, medium and large before scanning. Similar sizes spread out more evenly.</li>
+        <li><b>Spread, scan, sweep</b>Spread 5 to 20 parts with gaps, wait for the labels, sweep each part into its bin, then spread the next lot.</li>
+      </ul>
+    </div>
+
+    <div class="panel" id="cards-panel" hidden>
+      <div class="row">
+        <h2>Sorted</h2>
+        <span class="muted" id="cards-summary"></span>
+        <button class="btn small spacer" type="button" id="sort-new">Start a new sort</button>
+      </div>
+      <div class="confirm" id="sort-new-confirm" hidden>
+        <span>Empty all the bins and start again? Parts already added to your inventory stay there.</span>
+        <button class="btn danger" type="button" id="sort-new-yes">Start again</button>
+        <button class="btn" type="button" id="sort-new-no">Keep sorting</button>
+      </div>
+      <div class="cards" id="sort-cards"></div>
+    </div>
+
+    <div class="panel" id="bins-panel">
+      <div class="row">
+        <h2>Bins</h2>
+        <span class="muted" id="bins-summary"></span>
+        <button class="btn small spacer" type="button" id="sort-missing">What's still missing</button>
+      </div>
+      <div class="notice" id="bins-none" hidden>Add the sets you're rebuilding under <b>Sets in this pile</b> on the Scan tab, and each one gets its own bin. <button class="btn small" type="button" id="bins-go-scan" style="margin-left:6px">Add sets</button></div>
+      <div class="bins" id="bins-list"></div>
+      <details class="more" id="bin-settings">
+        <summary>Bin settings</summary>
+        <div style="display:grid;gap:10px;margin-top:10px">
+          <label class="check"><input type="checkbox" id="bin-rare"> A bin for rare parts (in 3 sets or fewer)</label>
+          <label class="check"><input type="checkbox" id="bin-figparts"> A bin for minifigure parts</label>
+          <label style="display:grid;gap:4px;font-size:14px;max-width:420px">Everything else
+            <select id="bin-other"><option value="one">One bin</option><option value="colour">Split by colour</option><option value="category">Split by kind of part (bricks, plates, slopes…)</option></select></label>
+          <label class="check"><input type="checkbox" id="sort-auto"> Add confident matches to the inventory by themselves (turn off if these parts are already in your inventory)</label>
+          <label class="check"><input type="checkbox" id="sort-sound"> Sounds: a chime for each part, a brighter one for rare parts</label>
+        </div>
+      </details>
+    </div>
+
+    <div id="sort-shop"></div>
   </section>
 
   <!-- INVENTORY -->
@@ -1020,7 +1124,7 @@ const blReady = (async () => {
   return blOn;
 })();
 // The version of this page; version.json next to it says the newest one published.
-const APP_VERSION = "2026-10-13 22:43";
+const APP_VERSION = "2026-10-14 12:23";
 async function checkForUpdate() {
   if (!/^https?:$/.test(location.protocol) || APP_VERSION.startsWith("__")) return;
   try {
@@ -1080,6 +1184,7 @@ function show(view) {
   for (const s of document.querySelectorAll(".view")) s.hidden = s.id !== "view-" + view;
   if (view === "inv") renderInventory();
   if (view === "set") { $("#key-needed").hidden = hasRb(); renderExpected(); }
+  if (view === "sort") { renderSort(); ensureColours().catch(() => {}); } else if (typeof stopCam === "function") stopCam();
   window.scrollTo({ top: 0 });
 }
 for (const b of document.querySelectorAll("header nav button")) b.addEventListener("click", () => show(b.dataset.view));
@@ -2254,7 +2359,7 @@ function rbxOwnerLines(o, mult = 1, keepSpares = true) {
   for (let k = ls[o]; k < ls[o + 1]; k++) {
     const spare = !!(lq[k] & 32768); if (spare && !keepSpares) continue;
     const cid = lc[k] === 65535 ? -1 : lc[k];
-    out.push({ part_num: RBX.h.parts[lp[k]], bl_ids: [], name: "", color_id: cid, color_name: colourName(cid), quantity: (lq[k] & 32767) * mult, img: "", spare });
+    out.push({ part_num: RBX.h.parts[lp[k]], bl_ids: [], name: RBX.h.part_names ? RBX.h.part_names[lp[k]] || "" : "", color_id: cid, color_name: colourName(cid), quantity: (lq[k] & 32767) * mult, img: "", spare });
   }
   return out;
 }
@@ -2350,7 +2455,8 @@ function expectedChanged() {
   catCache = null;
   if (!store.set("expectedSets", expectedSets)) toast("Couldn't save the set list in this browser.");
   for (const r of review) if (!r.touched) applyChoice(r, false);
-  renderExpected(); renderReview();
+  needCache = null;
+  renderExpected(); renderReview(); renderSort();
 }
 function renderExpected() {
   $("#expect-list").innerHTML = expectedSets.map((st, i) => `<div class="setchip">
@@ -2447,8 +2553,8 @@ function setBlock({ info, lines, figs }, multi) {
   const table = shown.length ? `<div class="table-wrap"><table>
       <thead><tr><th></th><th>Part</th><th>Name</th><th>Colour</th><th class="num">Need</th><th class="num">Have</th><th class="num">Missing</th></tr></thead>
       <tbody>${shown.map(l => `<tr class="${l.have === 0 ? "missing" : l.missing ? "partial" : ""}">
-        <td>${l.img ? `<img src="${esc(l.img)}" alt="" loading="lazy">` : ""}</td>
-        <td class="mono"><a href="https://www.bricklink.com/v2/catalog/catalogitem.page?P=${encodeURIComponent(l.bl_ids[0] || l.part_num)}" target="_blank" rel="noopener">${esc(l.part_num)}</a></td>
+        <td>${(img => img ? `<img src="${esc(img)}" alt="" loading="lazy" onerror="this.remove()">` : "")(l.img || blImg(l, blColour(l.color_name)))}</td>
+        <td class="mono"><a href="${esc(blUrl("part", blIdOf(l), blColour(l.color_name)))}" target="_blank" rel="noopener">${esc(l.part_num)}</a></td>
         <td>${esc(l.name)}${l.match && l.match !== "exact" ? ` <span class="chip warn">${esc(l.match)}</span>` : ""}</td>
         <td><span class="row" style="gap:6px;flex-wrap:nowrap"><span class="swatch" style="background:#${esc(l.rgb)}"></span>${esc(l.color_name)}</span></td>
         <td class="num">${l.quantity}</td><td class="num">${l.have}</td><td class="num"><b>${l.missing || ""}</b></td>
@@ -2485,6 +2591,8 @@ function renderSet() {
       </div>
       ${multi ? `<p class="muted" style="margin:0">Pieces were shared out in the order the sets are listed, so none is counted twice.</p>` : ""}
       ${results.map(r => setBlock(r, multi)).join("")}
+      ${anyMissing ? `<div class="panel">${shopBlock(results, multi ? "Missing across these sets" : "Shopping list",
+        multi ? "Pieces were shared out in the order the sets are listed, then what's missing was added up, so each part is listed once." : "Everything this set still needs, ready to buy on BrickLink.")}</div>` : ""}
       ${left ? `<p class="muted" style="margin:0">${left} of your items aren't used by ${multi ? "any of these sets" : "this set"}${extras.some(e => e.otherColour) ? `, some of them because the colour differs. If a colour guess was wrong, fix it in the inventory and check again.` : "."}</p>` : ""}
     </div>`;
 }
@@ -3028,6 +3136,555 @@ $("#namefig-result").addEventListener("click", e => {
   renderReview();
   toast(`Added ${c.name || no} to the list`);
 });
+// =================== SORT: live camera, bins and one card per part ===================
+// Each set in this pile gets a bin. A part goes to the first set (in pile order) that still needs it,
+// then rare parts, minifigure parts, everything else, and "check by hand" for anything unsure.
+// The bins are a sorting session of their own: they start empty, whatever is already in the inventory.
+const CONFIDENT = 0.8, UNSURE = 0.5;
+const sortCfg = () => ({ rare: store.get("binRare", true), figparts: store.get("binFigparts", true), other: store.get("binOther", "one"),
+  auto: store.get("sortAuto", true), sound: store.get("sortSound", true) });
+let sortSession = store.get("sortSession", null) || { started: Date.now(), sorted: [], counts: {}, cards: [] };
+sortSession.sorted = sortSession.sorted || []; sortSession.counts = sortSession.counts || {};
+let sortCards = (sortSession.cards || []).map(c => ({ ...c, restored: true }));     // newest first
+let sortSeq = sortCards.reduce((m, c) => Math.max(m, c.id), 0);
+let sortMode = store.get("sortMode", "parts");
+let needCache = null;
+const pKey = (num, cid) => `p|${String(num).toLowerCase()}|${cid}`;
+const fKey = num => `f|${String(num).toLowerCase()}`;
+
+function saveSort() {
+  sortSession.cards = sortCards.filter(c => !c.busy && c.bin).slice(0, 60)
+    .map(c => ({ id: c.id, thumb: c.thumb, info: c.info, bin: c.bin, inv: c.inv || null, cond: c.cond, rare: c.rare ? { n: c.rare.n, sets: c.rare.sets.slice(0, 3) } : null }));
+  if (!store.set("sortSession", sortSession)) { sortSession.cards = sortSession.cards.slice(0, 10); store.set("sortSession", sortSession); }
+}
+// What each set still needs: key -> [{set, need, left}] in pile order.
+function needs() {
+  if (needCache) return needCache;
+  const m = new Map(), push = (k, v) => { if (!m.has(k)) m.set(k, []); m.get(k).push(v); };
+  for (const st of expectedSets) {
+    for (const l of checkLines(st.lines.concat(st.figParts || []))) push(pKey(l.part_num, l.color_id), { set: st.info.set_num, need: l.quantity, left: l.quantity });
+    for (const f of st.figs || []) push(fKey(f.fig_num), { set: st.info.set_num, need: f.quantity, left: f.quantity });
+  }
+  for (const s of sortSession.sorted) { const e = (m.get(s.key) || []).find(x => x.set === s.set); if (e) e.left -= s.qty; }
+  needCache = m;
+  return m;
+}
+function binList() {
+  const cfg = sortCfg(), out = [];
+  for (const st of expectedSets) out.push({ id: "set:" + st.info.set_num, set: st.info.set_num, name: st.info.name, kind: "set" });
+  if (cfg.rare) out.push({ id: "rare", name: "Rare parts", kind: "rare" });
+  if (cfg.figparts) out.push({ id: "figparts", name: "Minifigure parts", kind: "plain" });
+  out.push({ id: "other", name: { one: "Everything else", colour: "Everything else, by colour", category: "Everything else, by kind" }[cfg.other] || "Everything else", kind: "plain" });
+  out.push({ id: "check", name: "Check by hand", kind: "check" });
+  out.forEach((b, i) => (b.no = i + 1));
+  return out;
+}
+const rbColourName = cid => { const c = (rbColors || []).find(c => c.id === cid); return c ? c.name : String(cid); };
+const shortName = (s, n = 26) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
+function decideBin(c) {
+  const bins = binList(), cfg = sortCfg(), r = c.r;
+  const to = (id, why = "", extra = {}) => { const b = bins.find(x => x.id === id) || bins[bins.length - 1];
+    return { id: b.id, no: b.no, name: b.name, kind: b.kind, set: b.set || "", why, sub: "", ...extra }; };
+  if (!r || r.error || !r.items.length) return to("check", r && r.error ? `${r.error}. Try it again on its own, or add it by hand` : "Not recognised");
+  if (c.cond === "notlego") return to("check", "Not LEGO: keep it out of your sets");
+  if (c.cond === "faded" || c.cond === "damaged") return to("check", `${c.cond === "faded" ? "Faded" : "Damaged"}: kept out of your sets`);
+  const it = r.items[r.item], kind = r.kinds[r.item], entry = r.entries[r.item], col = kind === "part" ? r.colorOpts[r.colorSel] : null;
+  if (kind !== "part" && kind !== "fig") return to("check", `Looks like a whole ${kind}, not a part`);
+  if ((it.score || 0) < UNSURE && !r.touched) return to("check", `Not sure what this is (${Math.round((it.score || 0) * 100)}%). Pick the right match below, or check it on BrickLink`);
+  const N = needs();
+  let key = null, why = "";
+  if (kind === "fig" && entry) key = fKey(entry.fig_num);
+  if (kind === "part" && entry && col) key = pKey(entry.part_num, col.id);
+  if (key && N.has(key)) {
+    const slot = N.get(key).find(x => x.left > 0);
+    if (slot) return to("set:" + slot.set, "", { key, sub: shortName(setName(slot.set).replace(/ \([^)]*\)$/, "")) });
+    const total = N.get(key).reduce((s, x) => s + x.need, 0);
+    why = `Your sets need ${total} of these and already have them all, so this one is spare`;
+  } else if (kind === "part" && entry && entry.colorSets) {
+    // The part is in your sets, but not in this colour: often the colour guess is wrong.
+    const want = [...entry.colorSets.keys()].filter(cid => (N.get(pKey(entry.part_num, cid)) || []).some(x => x.left > 0));
+    if (want.length) {
+      const names = want.slice(0, 3).map(rbColourName);
+      const sureColour = col && col.score != null && col.score >= 0.6 && !r.touched ? true : col && r.touched;
+      if (!sureColour) return to("check", `Your sets need this part in ${names.join(" or ")}, not ${col ? col.name : "an unknown colour"}. If it is ${names.length === 1 ? names[0] : "one of those"}, pick it in the colour list`);
+      why = `Your sets only need this part in ${names.join(" or ")}`;
+    }
+  }
+  if (cfg.rare && c.rare && c.rare.n <= RARE_AT)
+    return to("rare", `${why ? why + ". " : ""}Only in ${c.rare.n === 1 ? "1 set" : `${c.rare.n} sets`}: ${c.rare.sets.slice(0, 3).join(", ")}`, { sub: c.rare.n === 1 ? "Only in 1 set" : `In ${c.rare.n} sets` });
+  if (cfg.figparts && kind === "part" && r.figPart) return to("figparts", why, { sub: "Minifigure parts" });
+  const sub = kind === "fig" ? "Minifigures" : cfg.other === "colour" ? (col ? col.name : "Colour unknown")
+    : cfg.other === "category" ? (it.category || "Other") : "Everything else";
+  return to("other", why, { sub });
+}
+function cardRow(c) {
+  const r = c.r, it = r.items[r.item], kind = r.kinds[r.item];
+  if (kind === "fig") { const f = r.figOpts[r.figSel];
+    return { type: "fig", part_id: it.id, part_name: it.name, img_url: it.img_url, bricklink_id: blFromItem(it), rb_fig: f ? f.fig_num : "", quantity: 1 }; }
+  const col = r.colorOpts[r.colorSel], entry = r.entries[r.item];
+  return { type: "part", part_id: it.id, part_name: it.name, img_url: it.img_url, bricklink_id: blFromItem(it),
+    rb_part: entry ? entry.part_num : "", color_name: col ? col.name : "", color_id: col ? col.id : "", quantity: 1 };
+}
+function cardInfo(c) {
+  const r = c.r, it = r && r.items[r.item];
+  if (!it) return { name: r && r.error ? r.error : "Not recognised", pid: "", img: "", colour: "", score: 0, kind: "" };
+  const kind = r.kinds[r.item], col = kind === "part" ? r.colorOpts[r.colorSel] : null;
+  return { name: it.name, pid: it.id, img: it.img_url || "", colour: col ? col.name : "", score: it.score || 0, kind, bl: blFromItem(it) };
+}
+function removeFromInventory(row) {
+  const k = invKey(row), i = inventory.findIndex(x => invKey(x) === k);
+  if (i < 0) return;
+  inventory[i].quantity -= row.quantity || 1;
+  if (inventory[i].quantity <= 0) inventory.splice(i, 1);
+  saveInventory();
+}
+function addCardToInv(c) {
+  if (c.inv || !c.r || !c.r.items.length) return;
+  const row = cardRow(c); addToInventory(row); saveInventory(); c.inv = row;
+}
+function unassign(c) {
+  const i = sortSession.sorted.findIndex(s => s.card === c.id);
+  if (i >= 0) { sortSession.sorted.splice(i, 1); needCache = null; }
+  if (c.bin) sortSession.counts[c.bin.id] = Math.max(0, (sortSession.counts[c.bin.id] || 0) - 1);
+  if (c.inv) { removeFromInventory(c.inv); c.inv = null; }
+}
+function assign(c, { keepInv } = {}) {
+  const hadInv = !!c.inv;
+  unassign(c);
+  c.bin = decideBin(c);
+  sortSession.counts[c.bin.id] = (sortSession.counts[c.bin.id] || 0) + 1;
+  if (c.bin.key && c.bin.set) { sortSession.sorted.push({ set: c.bin.set, key: c.bin.key, qty: 1, card: c.id }); needCache = null; }
+  const score = c.r && c.r.items[c.r.item] ? c.r.items[c.r.item].score || 0 : 0;
+  if (c.bin.kind !== "check" && ((keepInv && hadInv) || (sortCfg().auto && (score >= CONFIDENT || c.r.touched)))) addCardToInv(c);
+  c.info = cardInfo(c);
+}
+
+// ---------- sounds (and a buzz on phones that can) ----------
+let audioCtx = null;
+function unlockAudio() {
+  try { audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)(); if (audioCtx.state === "suspended") audioCtx.resume(); } catch {}
+}
+function chime(kind) {
+  if (!sortCfg().sound) return;
+  if (audioCtx) try {
+    const notes = kind === "rare" ? [880, 1175, 1568] : kind === "check" ? [300] : [740];
+    notes.forEach((f, i) => {
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain(), t = audioCtx.currentTime + i * 0.11;
+      o.type = "sine"; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.2, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+      o.connect(g).connect(audioCtx.destination); o.start(t); o.stop(t + 0.22);
+    });
+  } catch {}
+  if (navigator.vibrate) navigator.vibrate(kind === "rare" ? [40, 60, 40, 60, 40] : kind === "check" ? 80 : 25);
+}
+
+// ---------- identifying ----------
+const sortJobs = [];
+let sortRunning = 0;
+function cropThumb(p, b, max = 160) {
+  const sx = b.x0 / p.scale, sy = b.y0 / p.scale, sw = (b.x1 - b.x0) / p.scale, sh = (b.y1 - b.y0) / p.scale, k = Math.min(1, max / Math.max(sw, sh));
+  const c = document.createElement("canvas"); c.width = Math.max(1, Math.round(sw * k)); c.height = Math.max(1, Math.round(sh * k));
+  c.getContext("2d").drawImage(p.img, sx, sy, sw, sh, 0, 0, c.width, c.height);
+  return c.toDataURL("image/jpeg", 0.75);
+}
+async function newCard(p, b) {
+  const c = { id: ++sortSeq, thumb: cropThumb(p, b), cond: "good", busy: true, fresh: true };
+  const { blob } = await cropBlob(p, b);
+  sortCards.unshift(c);
+  sortJobs.push({ c, blob });
+  pumpSort();
+  return c;
+}
+function pumpSort() {
+  while (sortRunning < 2 && sortJobs.length) {
+    const { c, blob } = sortJobs.shift(); sortRunning++;
+    const mode = sortMode;
+    identifyOne(blob, mode)
+      .then(res => toReview({ crop: c.thumb, blob, photo: "camera", n: c.id, mode, res }),
+            e => { if (e instanceof NetError) camError(viaHelper ? "The local helper couldn't reach Brickognize. Check your internet connection." : "This phone couldn't reach Brickognize. Check your internet connection.");
+                   return toReview({ crop: c.thumb, blob, photo: "camera", n: c.id, mode, error: e.message }); })
+      .then(async r => {
+        c.r = r;
+        // With Rebrickable's database the rare-part check is instant, so do it before showing a bin (no part changes bin later).
+        if (RBX && rarityKey(r)) {
+          const k = rarityKey(r);
+          try { const got = await Promise.race([rarityOf(r), sleep(1500).then(() => undefined)]);
+                if (got !== undefined) { c.rareKey = k; c.rare = got && got.n >= 1 && got.n <= RARE_AT ? got : null; } } catch {}
+        }
+        c.busy = false;
+        if (!sortCards.includes(c)) return;          // removed while it was being identified
+        assign(c); saveSort(); renderSort(); drawOverlay();
+        chime(c.bin.kind === "check" ? "check" : c.bin.kind === "rare" || (c.rare && c.rare.n === 1) ? "rare" : "part");
+        checkSortRarity();
+      })
+      .finally(() => { sortRunning--; pumpSort(); camIdle(); });
+  }
+  renderSort();
+}
+// Rare parts: same lookups as the rare-part flags on the Scan tab (instant with Rebrickable's database).
+let sortRareBusy = false;
+async function checkSortRarity() {
+  if (sortRareBusy) return;
+  if (!store.get("rbKey", "") && !(RBX || await loadIndex())) return;
+  sortRareBusy = true;
+  const wasPaced = rbPaced; rbPaced = true;
+  try {
+    await ensureColours();
+    for (;;) {
+      const c = sortCards.find(c => c.r && !c.busy && !c.restored && rarityKey(c.r) && c.rareKey !== rarityKey(c.r));
+      if (!c) break;
+      const k = rarityKey(c.r);
+      let got = null;
+      try { got = await rarityOf(c.r); } catch {}
+      c.rareKey = k;
+      c.rare = got && got.n >= 1 && got.n <= RARE_AT ? got : null;
+      if (c.rare && sortCards.includes(c)) {
+        const was = c.bin && c.bin.id;
+        assign(c, { keepInv: true });
+        if (c.bin.id !== was) c.moved = true;
+        chime("rare"); saveSort(); renderSort(); drawOverlay();
+      }
+    }
+  } finally { rbPaced = wasPaced; sortRareBusy = false; }
+}
+
+// ---------- camera ----------
+let cam = null;
+const camState = (t, busy) => { const el = $("#cam-state"); el.textContent = t; el.classList.toggle("busy", !!busy); };
+function camError(msg) { const e = $("#cam-error"); e.textContent = msg; e.hidden = !msg; }
+function frameToPhoto(src) {
+  const w = src.width, h = src.height, scale = Math.min(1, 1000 / Math.max(w, h)), cw = Math.round(w * scale), ch = Math.round(h * scale);
+  const s = document.createElement("canvas"); s.width = cw; s.height = ch;
+  const ctx = s.getContext("2d", { willReadFrequently: true }); ctx.drawImage(src, 0, 0, cw, ch);
+  return { id: 0, name: "camera", img: src, w, h, cw, ch, scale, rgba: ctx.getImageData(0, 0, cw, ch).data, boxes: [], off: new Set(), det: null };
+}
+async function startCam() {
+  camError("");
+  unlockAudio();
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia)
+    return camError("This browser can't use the camera on this page. Use Take a photo instead.");
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } } });
+  } catch (e) {
+    return camError(e && e.name === "NotAllowedError"
+      ? "The camera wasn't allowed. On an iPhone: Settings → Apps → Safari → Camera → Allow (or tap aA in the address bar → Website Settings), then try again."
+      : `The camera couldn't start (${e && e.message ? e.message : e}). Use Take a photo instead.`);
+  }
+  const video = $("#cam-video");
+  video.srcObject = stream;
+  try { await video.play(); } catch {}
+  cam = { stream, video, small: document.createElement("canvas"), prev: null, lastDone: null, still: 0, busy: false, known: [], wake: null };
+  cam.timer = setInterval(camTick, 200);
+  $("#cam-wrap").hidden = false; $("#cam-scan").hidden = false; $("#cam-tips").hidden = true; $("#cam-start").textContent = "Stop camera";
+  camState("Hold still…");
+  try { if (navigator.wakeLock) cam.wake = await navigator.wakeLock.request("screen"); } catch {}
+  ensureColours().catch(() => {}); loadIndex();
+}
+function stopCam() {
+  if (!cam) return;
+  clearInterval(cam.timer);
+  for (const t of cam.stream.getTracks()) t.stop();
+  try { cam.wake && cam.wake.release(); } catch {}
+  $("#cam-video").srcObject = null;
+  cam = null;
+  $("#cam-wrap").hidden = true; $("#cam-scan").hidden = true; $("#cam-tips").hidden = false; $("#cam-start").textContent = "Start camera";
+}
+function grey(video) {
+  const c = cam.small, w = 64, h = Math.max(1, Math.round(64 * video.videoHeight / video.videoWidth));
+  if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+  const ctx = c.getContext("2d", { willReadFrequently: true }); ctx.drawImage(video, 0, 0, w, h);
+  const d = ctx.getImageData(0, 0, w, h).data, g = new Uint8Array(w * h);
+  for (let i = 0; i < g.length; i++) g[i] = (d[i * 4] * 3 + d[i * 4 + 1] * 6 + d[i * 4 + 2]) / 10;
+  return g;
+}
+const changedFrac = (a, b) => { if (!a || a.length !== b.length) return 1; let n = 0; for (let i = 0; i < a.length; i++) if (Math.abs(a[i] - b[i]) > 22) n++; return n / a.length; };
+function camTick() {
+  if (!cam || cam.busy || document.hidden) return;
+  const v = cam.video; if (!v.videoWidth) return;
+  const g = grey(v), moved = changedFrac(cam.prev, g);
+  cam.prev = g;
+  if (moved > 0.01) { cam.still = 0; camState("Moving…"); return; }
+  if (++cam.still < 3) return;                              // still for about half a second
+  if (changedFrac(cam.lastDone, g) < 0.004) { camIdle(); return; }
+  processFrame(g);
+}
+function camIdle() {
+  if (!cam || cam.busy) return;
+  const waiting = sortCards.filter(c => c.busy).length;
+  if (waiting) return camState(`Identifying ${waiting} part${waiting === 1 ? "" : "s"}…`, true);
+  const n = cam.known.length;
+  camState(n ? `${n} labelled: sweep each into its bin` : "Waiting for parts");
+}
+async function processFrame(g) {
+  if (!cam || cam.busy) return;
+  cam.busy = true; camState("Finding parts…", true);
+  try {
+    const v = cam.video, full = document.createElement("canvas");
+    full.width = v.videoWidth; full.height = v.videoHeight;
+    full.getContext("2d").drawImage(v, 0, 0);
+    const p = frameToPhoto(full);
+    await detect(p);
+    const norm = b => [b.x0 / p.cw, b.y0 / p.ch, b.x1 / p.cw, b.y1 / p.ch];
+    // Average colour of a box's middle, so a different part put down in the same spot counts as new.
+    const tint = b => { let r = 0, g2 = 0, bl = 0, n = 0; const mx = (b.x1 - b.x0) / 4, my = (b.y1 - b.y0) / 4;
+      for (let y = Math.round(b.y0 + my); y < b.y1 - my; y += 2) for (let x = Math.round(b.x0 + mx); x < b.x1 - mx; x += 2) {
+        const i = (y * p.cw + x) * 4; r += p.rgba[i]; g2 += p.rgba[i + 1]; bl += p.rgba[i + 2]; n++; }
+      return n ? [r / n, g2 / n, bl / n] : [0, 0, 0]; };
+    const next = [], fresh = [], used = new Set();
+    for (const b of p.boxes) {
+      const nb = norm(b), t = tint(b);
+      let best = null, bi = 0;
+      for (const k of cam.known) { const o = Core.iou(k.box, nb); if (o > bi && !used.has(k)) { bi = o; best = k; } }
+      const same = best && bi > 0.3 && (!best.tint || Math.hypot(t[0] - best.tint[0], t[1] - best.tint[1], t[2] - best.tint[2]) < 45);
+      if (same) { used.add(best); next.push({ box: nb, card: best.card, tint: t }); }       // still there: already labelled
+      else fresh.push({ box: nb, b, tint: t });
+    }
+    cam.lastDone = g || grey(v);
+    cam.known = next.concat(fresh.map(f => ({ box: f.box, card: null, tint: f.tint })));
+    for (let i = 0; i < fresh.length; i++) cam.known[next.length + i].card = (await newCard(p, fresh[i].b)).id;
+    drawOverlay();
+    if (!p.boxes.length) camState("No parts found: spread some out on a plain background");
+  } catch (e) { camError(`Couldn't look for parts: ${e.message}`); }
+  finally { if (cam) { cam.busy = false; camIdle(); } }
+}
+function drawOverlay() {
+  const cv = $("#cam-overlay"); if (!cam) return;
+  const r = cv.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+  cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr);
+  const ctx = cv.getContext("2d"); ctx.clearRect(0, 0, cv.width, cv.height);
+  const fs = Math.max(16, cv.width / 28);
+  ctx.font = `800 ${fs}px "Bricolage Grotesque", system-ui, sans-serif`; ctx.textBaseline = "middle"; ctx.textAlign = "center";
+  for (const k of cam.known) {
+    const c = sortCards.find(x => x.id === k.card);
+    if (k.card && !c) continue;                              // its card was removed
+    const [x0, y0, x1, y1] = [k.box[0] * cv.width, k.box[1] * cv.height, k.box[2] * cv.width, k.box[3] * cv.height];
+    const kind = !c || c.busy ? "busy" : c.bin.kind;
+    const colour = { set: "#f2b705", rare: "#23a86a", check: "#e08a1e", plain: "#475569", busy: "#9aa6b6" }[kind];
+    ctx.lineWidth = Math.max(2, dpr * 2); ctx.strokeStyle = colour; ctx.strokeRect(x0, y0, x1 - x0, y1 - y0);
+    const label = !c || c.busy ? "…" : String(c.bin.no), rad = fs * 0.8, cx = (x0 + x1) / 2, cy = Math.max(rad, y0 - rad * 0.2);
+    ctx.fillStyle = colour; ctx.beginPath(); ctx.arc(cx, cy, rad, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = kind === "rare" || kind === "plain" ? "#fff" : "#111"; ctx.fillText(label, cx, cy + 1);
+  }
+}
+$("#cam-start").addEventListener("click", () => (cam ? stopCam() : startCam()));
+$("#cam-scan").addEventListener("click", () => { if (cam && !cam.busy) processFrame(null); });
+window.addEventListener("resize", () => drawOverlay());
+document.addEventListener("visibilitychange", async () => {
+  if (!cam) return;
+  const track = cam.stream.getVideoTracks()[0];
+  if (track && track.readyState === "ended") { stopCam(); camError("The camera stopped while the app was in the background. Tap Start camera."); return; }
+  if (!document.hidden && navigator.wakeLock) try { cam.wake = await navigator.wakeLock.request("screen"); } catch {}
+});
+$("#sort-photo").addEventListener("change", async e => {
+  const file = e.target.files[0]; e.target.value = ""; if (!file) return;
+  unlockAudio(); camError("");
+  try {
+    await ensureColours().catch(() => {});
+    const img = await loadImage(file), k = Math.min(1, 2048 / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement("canvas"); c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+    c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+    const p = frameToPhoto(c);
+    await detect(p);
+    if (!p.boxes.length) { toast("No parts found in that photo. Use a plain background and spread them out."); return; }
+    for (const b of p.boxes) await newCard(p, b);
+    toast(`Found ${p.boxes.length} part${p.boxes.length === 1 ? "" : "s"}, identifying…`);
+    $("#cards-panel").scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (ex) { camError(ex.message); }
+});
+
+// ---------- bins and cards on screen ----------
+function renderBins() {
+  const bins = binList(), N = needs();
+  const setNeed = new Map(), setHave = new Map();
+  for (const arr of N.values()) for (const x of arr) { setNeed.set(x.set, (setNeed.get(x.set) || 0) + x.need); setHave.set(x.set, (setHave.get(x.set) || 0) + x.need - Math.max(0, x.left)); }
+  $("#bins-none").hidden = expectedSets.length > 0;
+  const total = Object.values(sortSession.counts).reduce((s, n) => s + n, 0);
+  $("#bins-summary").textContent = total ? `${total} part${total === 1 ? "" : "s"} sorted` : "";
+  $("#sort-missing").hidden = !expectedSets.length;
+  $("#bins-list").innerHTML = bins.map(b => {
+    const n = sortSession.counts[b.id] || 0;
+    let detail = "";
+    if (b.kind === "set") {
+      const need = setNeed.get(b.set) || 0, have = setHave.get(b.set) || 0, pct = need ? Math.round(100 * have / need) : 0;
+      detail = `<div class="muted" style="font-size:13px">${have} of ${need} pieces · ${pct}%</div><div class="meter"><i style="width:${pct}%"></i></div>`;
+    } else detail = `<div class="muted" style="font-size:13px">${{ rare: "Parts in 3 sets or fewer", plain: b.id === "figparts" ? "Heads, torsos, legs, hair and accessories not needed by your sets" : "Parts your sets don't need", check: "Unsure matches, wrong colours, faded, damaged or not LEGO" }[b.kind] || ""}</div>`;
+    return `<div class="bin"><span class="no ${b.kind === "set" ? "" : "plain"}">${b.no}</span>
+      <div style="min-width:0"><b>${esc(b.name)}</b>${b.set ? ` <span class="mono muted">${esc(b.set)}</span>` : ""}${detail}</div>
+      <span class="mono" title="Parts sorted into this bin">${n}</span></div>`;
+  }).join("");
+}
+function cardHtml(c) {
+  if (c.busy) return `<div class="scard" data-id="${c.id}"><div class="pair"><figure><img src="${c.thumb}" alt=""><figcaption>Yours</figcaption></figure></div>
+    <div class="t"><b>Identifying…</b></div><div class="binbadge plain"><b>…</b><small>Wait</small></div></div>`;
+  const i = c.info || {}, b = c.bin, r = c.r, pct = Math.round((i.score || 0) * 100);
+  const badge = b.kind === "set" ? "" : b.kind;
+  let edit = "";
+  if (r && r.items.length && !c.restored) {
+    const kind = r.kinds[r.item];
+    const items = r.items.map((x, k) => `<option value="${k}" ${k === r.item ? "selected" : ""}>${esc(x.id)} · ${esc(shortName(x.name, 40))} (${Math.round(x.score * 100)}%)</option>`).join("");
+    const cols = kind === "part" ? [`<option value="-1" ${r.colorSel === -1 ? "selected" : ""}>Colour unknown</option>`].concat(r.colorOpts.map((o, k) =>
+      `<option value="${k}" ${k === r.colorSel ? "selected" : ""}>${esc(o.name)}${o.score != null ? ` (${Math.round(o.score * 100)}%)` : ""}${o.inSet ? " · in your sets" : ""}</option>`)).join("") : "";
+    edit = `<select data-k="item" aria-label="Match">${items}</select>${cols ? `<select data-k="color" aria-label="Colour">${cols}</select>` : ""}`;
+  }
+  const acts = c.restored ? `<span class="muted">Sorted earlier</span>` : `${edit}
+      <select data-k="cond" aria-label="Condition"><option value="good" ${c.cond === "good" ? "selected" : ""}>Good</option><option value="faded" ${c.cond === "faded" ? "selected" : ""}>Faded</option><option value="damaged" ${c.cond === "damaged" ? "selected" : ""}>Damaged</option><option value="notlego" ${c.cond === "notlego" ? "selected" : ""}>Not LEGO</option></select>
+      ${r && r.items.length && c.cond === "good" ? `<button class="btn small" type="button" data-k="inv">${c.inv ? "Take out of inventory" : "Add to inventory"}</button>` : ""}`;
+  const links = i.pid ? ext(blUrl(i.kind || "part", i.bl || i.pid, i.kind === "part" ? blColour(i.colour) : null, i.name), "BrickLink", "Open on BrickLink") : "";
+  return `<div class="scard ${c.rare ? "rare" : ""} ${b.kind === "check" ? "check" : ""} ${c.fresh ? "fresh" : ""}" data-id="${c.id}">
+    <div class="pair"><figure><img src="${c.thumb}" alt=""><figcaption>Yours</figcaption></figure>${i.img ? `<figure><img class="ref" src="${esc(i.img)}" alt="" loading="lazy"><figcaption>Match</figcaption></figure>` : ""}</div>
+    <div class="t"><b>${esc(i.name || "")}</b>
+      <span class="mono muted" style="font-size:12px">${esc(i.pid || "")}${i.colour ? ` · ${swatch(i.colour)} ${esc(i.colour)}` : ""}</span>
+      <span class="row" style="gap:4px 8px">${i.pid ? `<span class="chip ${pct >= 80 ? "ok" : "warn"}">${pct}%</span>` : ""}${c.inv ? `<span class="chip star">In inventory</span>` : ""}${c.rare ? `<span class="chip ok">${c.rare.n === 1 ? "Only in 1 set" : `In only ${c.rare.n} sets`}</span>` : ""}${links}</span></div>
+    <div class="binbadge ${badge}"><b>${b.no}</b><small>${esc(b.sub || b.name)}</small></div>
+    ${b.why || c.moved ? `<div class="why ${b.kind === "check" ? "" : "muted"}">${c.moved ? `<b>Moved to bin ${b.no}</b> after checking how rare it is. ` : ""}${esc(b.why)}${b.why ? "." : ""}</div>` : ""}
+    <div class="acts">${acts}<button class="del" type="button" data-k="drop" title="Remove this card (and take it back out of its bin)" aria-label="Remove">×</button></div>
+  </div>`;
+}
+function renderSort() {
+  if ($("#view-sort").hidden) return;
+  renderBins();
+  const shown = sortCards.slice(0, 40);
+  $("#cards-panel").hidden = !sortCards.length;
+  const inInv = sortCards.filter(c => c.inv).length;
+  $("#cards-summary").textContent = sortCards.length ? `${sortCards.length} card${sortCards.length === 1 ? "" : "s"}${inInv ? `, ${inInv} added to your inventory` : ""}` : "";
+  $("#sort-cards").innerHTML = shown.map(cardHtml).join("");
+  for (const c of shown) c.fresh = false;
+}
+$("#sort-cards").addEventListener("change", e => {
+  const el = e.target, row = el.closest(".scard"); if (!row) return;
+  const c = sortCards.find(x => x.id === +row.dataset.id); if (!c || !c.r) return;
+  if (el.dataset.k === "item") { c.r.item = +el.value; c.r.touched = true; applyChoice(c.r, true); c.r.figPart = c.r.kinds[c.r.item] === "part" && looksLikeFigPart(c.r.items[c.r.item]); }
+  if (el.dataset.k === "color") { c.r.colorSel = +el.value; c.r.touched = true; }
+  if (el.dataset.k === "cond") c.cond = el.value;
+  c.moved = false;
+  assign(c, { keepInv: el.dataset.k !== "cond" });
+  saveSort(); renderSort(); drawOverlay(); checkSortRarity();
+});
+$("#sort-cards").addEventListener("click", e => {
+  const el = e.target.closest("[data-k]"); if (!el || el.tagName === "SELECT") return;
+  const c = sortCards.find(x => x.id === +el.closest(".scard").dataset.id); if (!c) return;
+  if (el.dataset.k === "inv") { if (c.inv) { removeFromInventory(c.inv); c.inv = null; } else addCardToInv(c); }
+  if (el.dataset.k === "drop") {
+    if (c.restored) {                                  // sorted before a reload: only its bin counts can be undone
+      const i = sortSession.sorted.findIndex(s => s.card === c.id); if (i >= 0) sortSession.sorted.splice(i, 1);
+      if (c.bin) sortSession.counts[c.bin.id] = Math.max(0, (sortSession.counts[c.bin.id] || 0) - 1);
+      if (c.inv) removeFromInventory(c.inv);
+      needCache = null;
+    } else if (!c.busy) unassign(c);
+    sortCards.splice(sortCards.indexOf(c), 1);
+  }
+  c.info = c.r ? cardInfo(c) : c.info;
+  saveSort(); renderSort(); drawOverlay();
+});
+$("#sort-new").addEventListener("click", () => ($("#sort-new-confirm").hidden = false));
+$("#sort-new-no").addEventListener("click", () => ($("#sort-new-confirm").hidden = true));
+$("#sort-new-yes").addEventListener("click", () => {
+  sortSession = { started: Date.now(), sorted: [], counts: {}, cards: [] };
+  sortCards = []; needCache = null; if (cam) { cam.known = []; cam.lastDone = null; }
+  $("#sort-new-confirm").hidden = true; $("#sort-shop").innerHTML = "";
+  saveSort(); renderSort(); drawOverlay(); toast("Bins emptied: start sorting");
+});
+$("#bins-go-scan").addEventListener("click", () => { show("scan"); $("#expect-panel").scrollIntoView({ behavior: "smooth", block: "start" }); });
+for (const [id, key, def] of [["#bin-rare", "binRare", true], ["#bin-figparts", "binFigparts", true], ["#sort-auto", "sortAuto", true], ["#sort-sound", "sortSound", true]]) {
+  $(id).checked = store.get(key, def);
+  $(id).addEventListener("change", () => { store.set(key, $(id).checked); renderSort(); });
+}
+$("#bin-other").value = store.get("binOther", "one");
+$("#bin-other").addEventListener("change", () => { store.set("binOther", $("#bin-other").value); renderSort(); });
+$("#sort-mode").value = sortMode;
+$("#sort-mode").addEventListener("change", () => { sortMode = $("#sort-mode").value; store.set("sortMode", sortMode); });
+
+// What the bins still need, as one shopping list.
+function sortResults() {
+  const got = new Map();
+  for (const s of sortSession.sorted) got.set(`${s.set}|${s.key}`, (got.get(`${s.set}|${s.key}`) || 0) + s.qty);
+  return expectedSets.map(st => {
+    const have = k => got.get(`${st.info.set_num}|${k}`) || 0;
+    const lines = checkLines(st.lines.concat(st.figParts || [])).map(l => { const h = Math.min(l.quantity, have(pKey(l.part_num, l.color_id))); return { ...l, have: h, missing: l.quantity - h }; });
+    return { info: st.info, lines, figs: [] };
+  });
+}
+$("#sort-missing").addEventListener("click", async () => {
+  await ensureColours().catch(() => {});
+  $("#sort-shop").innerHTML = `<div class="panel">${shopBlock(sortResults(), "Still missing from your set bins",
+    "Everything each set needs that hasn't been sorted into its bin yet, minifigure parts included, added up across your sets.")}</div>`;
+  $("#sort-shop").scrollIntoView({ behavior: "smooth", block: "start" });
+});
+
+// ---------- shopping list across sets, and a BrickLink wanted list ----------
+const shopLists = new Map();
+let shopSeq = 0;
+const blIdOf = l => (l.bl_ids && l.bl_ids[0]) || l.part_num;
+const blImg = (l, blc) => blc != null ? `https://img.bricklink.com/ItemImage/PN/${blc}/${encodeURIComponent(blIdOf(l))}.png` : "";
+function shoppingRows(results) {
+  const m = new Map(), figs = [];
+  for (const r of results) {
+    for (const l of r.lines) if (l.missing > 0) {
+      const k = `${l.part_num}|${l.color_id}`;
+      if (!m.has(k)) m.set(k, { ...l, missing: 0, sets: [] });
+      const e = m.get(k); e.missing += l.missing; if (!e.sets.includes(r.info.set_num)) e.sets.push(r.info.set_num);
+    }
+    for (const f of r.figs || []) if (f.missing > 0) figs.push({ ...f, set: r.info.set_num });
+  }
+  const parts = [...m.values()].sort((a, b) => (a.color_name || "").localeCompare(b.color_name || "") || (a.name || a.part_num).localeCompare(b.name || b.part_num));
+  return { parts, figs };
+}
+function wantedXml(parts) {
+  const x = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;" }[c]));
+  const skipped = [], items = [];
+  for (const p of parts) {
+    const blc = blColour(p.color_name);
+    if (blc == null || p.color_id < 0 || p.color_id === 9999) { skipped.push(p); continue; }
+    items.push(`  <ITEM>\n    <ITEMTYPE>P</ITEMTYPE>\n    <ITEMID>${x(blIdOf(p))}</ITEMID>\n    <COLOR>${blc}</COLOR>\n    <MINQTY>${p.missing}</MINQTY>\n    <REMARKS>${x("For " + p.sets.join(", "))}</REMARKS>\n    <NOTIFY>N</NOTIFY>\n  </ITEM>`);
+  }
+  return { xml: `<INVENTORY>\n${items.join("\n")}\n</INVENTORY>\n`, n: items.length, skipped };
+}
+function shopBlock(results, title, lede) {
+  const { parts, figs } = shoppingRows(results), id = ++shopSeq;
+  shopLists.set(id, { parts, figs });
+  const pieces = parts.reduce((s, p) => s + p.missing, 0);
+  if (!parts.length && !figs.length) return `<div class="empty"><strong>Nothing missing</strong><span>${esc(title)}: every piece is there.</span></div>`;
+  const w = wantedXml(parts), noBl = parts.some(p => !(p.bl_ids && p.bl_ids.length));
+  return `<div class="shop" data-shop-id="${id}">
+    <div><h2>${esc(title)}</h2><p class="muted" style="margin:4px 0 0;font-size:14px;max-width:62ch">${esc(lede)}</p></div>
+    <div class="stats"><div class="stat"><b>${pieces}</b><span>pieces to find</span></div><div class="stat"><b>${parts.length}</b><span>different parts</span></div>${figs.length ? `<div class="stat"><b>${figs.reduce((s, f) => s + f.missing, 0)}</b><span>minifigures</span></div>` : ""}</div>
+    <div class="row">
+      <button class="btn primary" type="button" data-shop="copy" ${w.n ? "" : "disabled"}>Copy BrickLink wanted list</button>
+      <button class="btn" type="button" data-shop="xml" ${w.n ? "" : "disabled"}>Download .xml</button>
+      <button class="btn" type="button" data-shop="csv">Download CSV</button>
+      ${ext("https://www.bricklink.com/v2/wanted/upload.page", "BrickLink's upload page", "Paste the list here: Want → Upload")}
+    </div>
+    <p class="muted" style="margin:0;font-size:13px">On BrickLink: Want → Upload, paste the list (or choose the .xml file), pick or create a wanted list, then Verify and Upload. BrickLink can then show which stores have the most of it.${w.skipped.length ? ` ${w.skipped.length} part${w.skipped.length === 1 ? " has a colour" : "s have colours"} BrickLink's list can't take, so ${w.skipped.length === 1 ? "it's" : "they're"} only in the CSV.` : ""}${noBl ? " Part numbers are Rebrickable's, which nearly always match BrickLink's; with a Rebrickable key BrickLink's own numbers are used." : ""}${figs.length ? " Whole minifigures aren't in the wanted list: they're listed below to look up by name." : ""}</p>
+    <details class="setblock"><summary>Show the list</summary>
+      <div class="table-wrap"><table>
+        <thead><tr><th></th><th>Part</th><th>Name</th><th>Colour</th><th class="num">Need</th><th>For</th></tr></thead>
+        <tbody>${figs.map(f => `<tr><td>${f.img ? `<img src="${esc(f.img)}" alt="" loading="lazy">` : ""}</td><td class="mono">${ext(`https://www.bricklink.com/v2/search.page?q=${encodeURIComponent(f.name)}#T=M`, esc(f.fig_num), "Search BrickLink for this minifigure")}</td><td>${esc(f.name)}</td><td><span class="chip fig">Minifigure</span></td><td class="num"><b>${f.missing}</b></td><td class="mono">${esc(f.set)}</td></tr>`).join("")}
+        ${parts.map(p => { const blc = blColour(p.color_name), img = p.img || blImg(p, blc); return `<tr>
+          <td>${img ? `<img src="${esc(img)}" alt="" loading="lazy" onerror="this.remove()">` : ""}</td>
+          <td class="mono"><a href="${esc(blUrl("part", blIdOf(p), blc))}" target="_blank" rel="noopener">${esc(blIdOf(p))}</a></td>
+          <td>${esc(p.name || "")}</td>
+          <td><span class="row" style="gap:6px;flex-wrap:nowrap">${p.rgb ? `<span class="swatch" style="background:#${esc(p.rgb)}"></span>` : swatch(p.color_name)}${esc(p.color_name)}</span></td>
+          <td class="num"><b>${p.missing}</b></td><td class="mono" style="font-size:12px">${esc(p.sets.join(", "))}</td></tr>`; }).join("")}</tbody>
+      </table></div>
+    </details>
+  </div>`;
+}
+document.addEventListener("click", async e => {
+  const b = e.target.closest("[data-shop]"); if (!b) return;
+  const list = shopLists.get(+b.closest("[data-shop-id]").dataset.shopId); if (!list) return;
+  const stamp = new Date().toISOString().slice(0, 10);
+  if (b.dataset.shop === "csv") {
+    const rows = list.figs.map(f => ({ type: "minifigure", part_num: f.fig_num, bricklink_id: "", name: f.name, color: "", bricklink_color: "", missing: f.missing, sets: f.set }))
+      .concat(list.parts.map(p => ({ type: "part", part_num: p.part_num, bricklink_id: blIdOf(p), name: p.name, color: p.color_name, bricklink_color: blColour(p.color_name) ?? "", missing: p.missing, sets: p.sets.join(" ") })));
+    return download(`missing-parts-${stamp}.csv`, Core.toCSV(rows, ["type", "part_num", "bricklink_id", "name", "color", "bricklink_color", "missing", "sets"]));
+  }
+  const w = wantedXml(list.parts);
+  if (b.dataset.shop === "xml") return download(`bricklink-wanted-${stamp}.xml`, w.xml, "application/xml");
+  try { await navigator.clipboard.writeText(w.xml); toast(`Copied ${w.n} parts. Paste them on BrickLink's upload page`); }
+  catch { download(`bricklink-wanted-${stamp}.xml`, w.xml, "application/xml"); toast("Couldn't copy here, so it was downloaded instead"); }
+});
+
 blReady.then(on => { if (on) { renderReview(); if (!$("#view-inv").hidden) renderInventory(); } });
 setTimeout(() => loadIndex().then(x => { if (x && review.length) renderReview(); }), 1500);
 $("#update-go").addEventListener("click", () => location.reload());
