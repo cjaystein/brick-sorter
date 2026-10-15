@@ -1361,7 +1361,7 @@ const blReady = (async () => {
   return blOn;
 })();
 // The version of this page; version.json next to it says the newest one published.
-const APP_VERSION = "2026-10-15 14:26";
+const APP_VERSION = "2026-10-15 14:58";
 async function checkForUpdate() {
   if (!/^https?:$/.test(location.protocol) || APP_VERSION.startsWith("__")) return;
   try {
@@ -5172,13 +5172,34 @@ async function checkFigParts(r) {
     const extra = Object.keys(seen).filter(slot => !lines.some(l => l.slot === slot) && seen[slot][0].score >= 0.7).map(slot => ({ slot, got: seen[slot][0] }));
     return { f, rows, ok, bad, extra };
   };
-  const cands = figCandidates(r, seen);
-  if (!cands.length) return { none: true, seen };
-  const judged = cands.map(judge), sc = j => j.ok * 2 - j.bad - j.rows.filter(w => w.status === "col").length * 0.5;
-  let best = judged[0];
-  for (const j of judged) if (sc(j) > sc(best)) best = j;
-  // Brickognize's own figure first when it does as well (it saw the whole figure, the strips saw pieces)
-  return { ...best, seen, unsure: best.ok === 0 || best.bad > best.ok };
+  // Which figure to compare with. Brickognize names a figure mostly by its torso print, so when the
+  // torso is read clearly, the figure is one of those with that torso and Brickognize's name picks
+  // which (Sleven rather than Krait, who share a torso); everything else that doesn't fit is what's
+  // been swapped. Without a clear torso: the figure linked to your sets, then the closest name that
+  // shares a part, then whichever figure shares the most parts.
+  const it = r.items[r.item], full = (it.name || "").replace(/\([^)]*\)/g, " ").replace(/\s+/g, " ").trim();
+  const sim = f => Core.nameSimilarity(full, RBX.h.figs[f][1]);
+  const sc = j => j.ok * 2 - j.bad - j.rows.filter(w => w.status === "col").length * 0.5;
+  const pick = (list, nameWeight) => list.map(judge).reduce((a, j) => (a == null || sc(j) + nameWeight * sim(j.f) > sc(a) + nameWeight * sim(a.f) ? j : a), null);
+  const pc = rbxMaps().pcFig, figsOf = rbs => { const out = new Set();
+    for (const rb of rbs) { const pi = rbxPart(rb); if (pi == null) continue; for (const [id] of RBX.h.colors) for (const f of pc.get(pi * 65536 + rbxCid(id)) || []) out.add(f); }
+    return [...out]; };
+  const linked = [r.figOpts && r.figOpts[r.figSel] ? RBX.figIdx.get(r.figOpts[r.figSel].fig_num) : null, r.rbFig ? RBX.figIdx.get(r.rbFig) : null].filter(f => f != null);
+  let best = null, by = "";
+  if (linked.length) { best = pick(linked, 0); by = "linked"; if (!best.ok) best = null; }
+  const torso = (seen.torso || []).filter(g => g.score >= 0.6);
+  if (!best && torso.length) {
+    const withTorso = figsOf(torso[0].rbs);
+    if (withTorso.length && withTorso.length <= 400) { best = pick(withTorso, 1.5); by = "torso"; }
+  }
+  if (!best) {
+    const cands = figCandidates(r, seen);
+    if (!cands.length) return { none: true, seen };
+    const named = cands.filter(f => sim(f) >= 0.45).map(judge).filter(j => j.ok > 0);
+    best = named.length ? named.reduce((a, j) => (sc(j) + 1.5 * sim(j.f) > sc(a) + 1.5 * sim(a.f) ? j : a)) : pick(cands, 0.5);
+    by = named.length ? "name" : "parts";
+  }
+  return { ...best, seen, by, unsure: best.ok === 0 || (by === "parts" && best.bad > best.ok) };
 }
 // Which figure the odd part comes from, e.g. "from Krait", for the message.
 function partOwner(rb, colour) {
@@ -5224,6 +5245,7 @@ function figCheckHtml(r) {
     <div><b>${fc.unsure ? (checked ? `Couldn't work out exactly which figure this is. Closest: ${esc(name)}` : `Couldn't see its parts clearly enough to check them`)
       : bad ? `${bad === 1 ? "1 part doesn't" : `${bad} parts don't`} match ${esc(name)}` : checked ? `The parts match ${esc(name)}` : `Couldn't see its parts clearly enough to check them`}</b>
       <span class="muted">· ${checked} of ${shown.length} checked · <span class="mono">${esc(x[0])}</span></span></div>
+    ${fc.by === "torso" && !fc.unsure ? `<div class="muted">Compared with the figure that has this torso and is closest to the name "${esc((r.items[r.item] || {}).name || "")}".</div>` : ""}
     <div class="fcparts">${shown.map(w => `<div class="fc ${w.status}" title="${esc(`${w.l.name} (${w.l.color_name})`)}">
         <div class="pics">${pic(picUrl(w.l.part_num, w.l.color_id) || picAnyColour(w.l.part_num))}${w.status === "bad" ? `→${pic(w.got.img, "got")}` : ""}</div>
         <b>${esc(label[w.status])}</b><span>${esc(slotName(w.l.slot) || partCat(w.l.part_num).replace(/^Minifig /, ""))}</span></div>`).join("")}
