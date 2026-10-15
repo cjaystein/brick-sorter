@@ -377,6 +377,8 @@ format). Put the zip in your `brick-detector` folder and step 2b of
 photos are kept for training a part recogniser later. Download them now and
 then: iPhones can clear a website's storage after a few weeks without a visit.
 
+On an iPhone, **Download (.zip)** packs the photos first and then becomes **Save the zip**: tap it again and choose *Save to Files* (or AirDrop it to your PC). iPhones only save a file straight after a tap, hence the two taps.
+
 ## Shopping list and BrickLink wanted list
 
 **What's still missing** (Sort tab) adds up what every set's bin still needs,

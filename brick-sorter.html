@@ -1350,7 +1350,7 @@ const blReady = (async () => {
   return blOn;
 })();
 // The version of this page; version.json next to it says the newest one published.
-const APP_VERSION = "2026-10-15 12:28";
+const APP_VERSION = "2026-10-15 13:28";
 async function checkForUpdate() {
   if (!/^https?:$/.test(location.protocol) || APP_VERSION.startsWith("__")) return;
   try {
@@ -1398,11 +1398,26 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": 
 let toastTimer;
 function toast(msg) { const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => (t.hidden = true), 2600); }
 
-function download(name, text, type = "text/csv") {
-  const url = URL.createObjectURL(new Blob([text], { type }));
-  const a = Object.assign(document.createElement("a"), { href: url, download: name });
-  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 2000);
+// iPhones and iPads (iPadOS says it's a Mac, but has a touch screen).
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+// Save a file. Must be called straight from a tap: Safari ignores downloads that start later.
+// The link goes inside an open dialog when there is one, since a dialog blocks the page behind it.
+// On an iPhone the share sheet is used when it can take files ("Save to Files", AirDrop, Mail...).
+async function saveBlob(blob, name) {
+  if (isIOS && navigator.canShare) {
+    const file = new File([blob], name, { type: blob.type || "application/octet-stream" });
+    if (navigator.canShare({ files: [file] })) {
+      try { await navigator.share({ files: [file] }); return true; }
+      catch (e) { if (e && e.name === "AbortError") return false; }   // cancelled; anything else falls back to a download
+    }
+  }
+  const url = URL.createObjectURL(blob);
+  const a = Object.assign(document.createElement("a"), { href: url, download: name, rel: "noopener" });
+  const host = [...document.querySelectorAll("dialog[open]")].pop() || document.body;
+  host.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 60000);
+  return true;
 }
+function download(name, text, type = "text/csv") { return saveBlob(new Blob([text], { type }), name); }
 
 // ---------- tabs ----------
 function show(view) {
@@ -4436,7 +4451,9 @@ async function trainAdd(rec) {
   try {
     const n = await trainDo("readonly", st => st.count());
     if (n >= TRAIN_MAX.crop + TRAIN_MAX.photo) return null;
-    return await trainDo("readwrite", st => st.add({ ...rec, t: Date.now() }));
+    const id = await trainDo("readwrite", st => st.add({ ...rec, t: Date.now() }));
+    if (packedZip) resetZipButton();                   // a zip packed before this one is out of date
+    return id;
   } catch (e) { console.warn("training photo not saved", e); return null; }
 }
 const trainDel = id => trainDo("readwrite", st => st.delete(id)).catch(() => {});
@@ -4558,22 +4575,33 @@ train_pile_detector.ipynb; step 1b adds them to the training data.
   return { blob: await makeZip(files), nc, np };
 }
 $("#train-on").addEventListener("change", () => { store.set("saveTraining", $("#train-on").checked); renderTraining(); });
+// Packing takes a moment, and an iPhone only saves a file straight after a tap. So there the first
+// tap packs the zip and the button becomes "Save the zip"; the second tap saves it.
+let packedZip = null;                                  // {blob, nc, np, name}
+const zipSize = n => n < 1e6 ? `${Math.max(1, Math.round(n / 1e3))} KB` : `${(n / 1e6).toFixed(1)} MB`;
+function resetZipButton() { packedZip = null; const b = $("#train-dl"); b.textContent = "Download (.zip)"; b.classList.remove("primary"); }
 $("#train-dl").addEventListener("click", async () => {
-  const b = $("#train-dl"); b.disabled = true; b.textContent = "Packing…";
+  const b = $("#train-dl");
+  if (packedZip) {
+    const z = packedZip;
+    if (await saveBlob(z.blob, z.name)) { toast(`Saved ${z.nc} part photo${z.nc === 1 ? "" : "s"} and ${z.np} full photo${z.np === 1 ? "" : "s"}`); resetZipButton(); }
+    return;
+  }
+  b.disabled = true; b.textContent = "Packing…";
   try {
     const { blob, nc, np } = await trainingZip();
-    const url = URL.createObjectURL(blob);
-    const a = Object.assign(document.createElement("a"), { href: url, download: `brick-sorter-training-${new Date().toISOString().slice(0, 10)}.zip` });
-    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 5000);
-    toast(`Downloaded ${nc} part photos and ${np} full photos`);
-  } catch (e) { toast(`Couldn't make the zip: ${e.message}`); }
-  finally { b.disabled = false; b.textContent = "Download (.zip)"; }
+    packedZip = { blob, nc, np, name: `brick-sorter-training-${new Date().toISOString().slice(0, 10)}.zip` };
+    if (isIOS) { b.textContent = `Save the zip (${zipSize(blob.size)})`; b.classList.add("primary"); toast("Packed. Tap Save the zip to save it"); }
+    else { await saveBlob(blob, packedZip.name); toast(`Downloaded ${nc} part photo${nc === 1 ? "" : "s"} and ${np} full photo${np === 1 ? "" : "s"}`); resetZipButton(); }
+  } catch (e) { toast(`Couldn't make the zip: ${e.message}`); resetZipButton(); }
+  finally { b.disabled = false; }
 });
 $("#train-clear").addEventListener("click", async () => {
   const b = $("#train-clear");
   if (b.dataset.sure !== "1") { b.dataset.sure = "1"; b.textContent = "Tap again to delete"; setTimeout(() => { b.dataset.sure = ""; b.textContent = "Delete them"; }, 4000); return; }
   b.dataset.sure = ""; b.textContent = "Delete them";
   await trainDo("readwrite", st => st.clear()).catch(() => {});
+  resetZipButton();
   renderTraining(); toast("Training photos deleted from this device");
 });
 
