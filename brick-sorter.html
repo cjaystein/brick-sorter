@@ -1230,7 +1230,7 @@ const blReady = (async () => {
   return blOn;
 })();
 // The version of this page; version.json next to it says the newest one published.
-const APP_VERSION = "2026-10-15 10:29";
+const APP_VERSION = "2026-10-15 10:50";
 async function checkForUpdate() {
   if (!/^https?:$/.test(location.protocol) || APP_VERSION.startsWith("__")) return;
   try {
@@ -2475,7 +2475,8 @@ function loadIndex() {
     let meta = null, saved = null;
     try { const r = await fetch("rb-index.json", { cache: "no-store" }); if (r.ok) meta = await r.json(); } catch {}
     try { saved = await idbGet("rbindex"); } catch {}
-    let gz = saved && saved.bytes && (!meta || saved.built === meta.built) ? saved.bytes : null;
+    // Same build date and same size: the saved copy is current (a rebuild on the same day changes the size).
+    let gz = saved && saved.bytes && (!meta || (saved.built === meta.built && (!meta.bytes || saved.bytes.length === meta.bytes))) ? saved.bytes : null;
     if (!gz && meta) {
       const r = await fetch("rb-index.bin.gz", { cache: "no-store" });
       if (!r.ok) return null;
@@ -2484,6 +2485,7 @@ function loadIndex() {
     }
     if (!gz) return null;
     RBX = await parseIndex(gz);
+    RBX.meta = meta || {};
     renderIndexState();
     return RBX;
   })().catch(e => { console.warn("Rebrickable database not loaded", e); return null; });
@@ -4296,7 +4298,7 @@ function loadPics() {                                  // rb-pics.txt.gz: a pict
     if (!/^https?:$/.test(location.protocol)) return null;
     await loadIndex();
     let gz = null;
-    try { const saved = await idbGet("rbpics"); if (saved && RBX && saved.built === RBX.built) gz = saved.bytes; } catch {}
+    try { const saved = await idbGet("rbpics"); if (saved && RBX && saved.built === RBX.built && (!RBX.meta.pics_bytes || saved.bytes.length === RBX.meta.pics_bytes)) gz = saved.bytes; } catch {}
     if (!gz) {
       const r = await fetch("rb-pics.txt.gz", { cache: "no-store" }).catch(() => null);
       if (!r || !r.ok) return null;
