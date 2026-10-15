@@ -216,6 +216,10 @@ details.setblock > summary { cursor: pointer; font-weight: 700; color: var(--acc
 .chip.fig { background: color-mix(in srgb, var(--mark) 30%, transparent); color: var(--ink); }
 .figrow { display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 8px 10px; border-top: 1px solid var(--line); }
 .figrow img { width: 56px; height: 56px; object-fit: contain; background: #fff; border-radius: 6px; }
+td img.pic { width: 64px; height: 64px; background: #fff; border-radius: 6px; cursor: zoom-in; }
+.picbtn { padding: 0; border: 0; background: none; display: block; width: 64px; height: 64px; }
+#pic-dlg { width: min(440px, calc(100vw - 16px)); padding: 0 16px 16px; }
+#pic-dlg .big { width: 100%; aspect-ratio: 1; object-fit: contain; background: #fff; border-radius: 8px; display: block; }
 .figrow.missing { background: color-mix(in srgb, var(--bad) 7%, transparent); }
 .figs { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
 .figs h3 { font-size: 15px; padding: 8px 10px; margin: 0; background: var(--sunken); }
@@ -224,6 +228,7 @@ details.setblock > summary { cursor: pointer; font-weight: 700; color: var(--acc
 @media (max-width: 560px) {
   td, th { padding: 8px 6px; }
   td img { width: 32px; height: 32px; }
+  td img.pic, .picbtn { width: 52px; height: 52px; }
   .item { grid-template-columns: minmax(0, 1fr); }
   .item .thumb { width: 56px; height: 56px; }
   .item .fields { grid-template-columns: 1fr; }
@@ -661,6 +666,11 @@ th[aria-sort="descending"]::after { content: " ▼"; }
     <div class="row"><button class="btn primary" value="save">Save</button><button class="btn" value="cancel" formnovalidate>Cancel</button></div>
     <p class="muted" style="margin:0;font-size:12px" id="app-version"></p>
   </form>
+</dialog>
+<dialog id="pic-dlg" aria-label="Part picture">
+  <div class="figbar-top"><strong id="pic-title">Part</strong><button class="icon-btn" type="button" id="pic-close" aria-label="Close">×</button></div>
+  <img class="big" id="pic-img" alt="">
+  <div id="pic-info" style="display:grid;gap:4px;margin-top:10px;font-size:14px"></div>
 </dialog>
 <dialog id="fig-dlg" aria-label="Minifigure">
   <div class="figbar-top"><strong>Minifigure</strong><button class="icon-btn" type="button" id="fig-close" aria-label="Close">×</button></div>
@@ -1230,7 +1240,7 @@ const blReady = (async () => {
   return blOn;
 })();
 // The version of this page; version.json next to it says the newest one published.
-const APP_VERSION = "2026-10-15 10:50";
+const APP_VERSION = "2026-10-15 11:33";
 async function checkForUpdate() {
   if (!/^https?:$/.test(location.protocol) || APP_VERSION.startsWith("__")) return;
   try {
@@ -2352,10 +2362,10 @@ function renderInventory() {
   }
   $("#inv-table").innerHTML = `${filterBar("inv", rows)}<div class="table-wrap"><table data-fkey="inv">
     <thead><tr><th></th>${sortTh("ID")}${sortTh("Name")}${sortTh("Colour")}${sortTh("Qty", "num")}${blOn ? sortTh("Each") : ""}<th></th></tr></thead>
-    <tbody>${rows.map(({ r, i, c, k }) => { const a = invPriceArgs(r); return `<tr data-i="${i}" ${rowData(`${r.part_id} ${r.part_name} ${r.rb_fig || ""} ${c ? "" : "minifigure"}`, c, k)}>
-      <td>${r.img_url ? `<img src="${esc(r.img_url)}" alt="" loading="lazy">` : ""}</td>
+    <tbody>${rows.map(({ r, i, c, k }) => { const a = invPriceArgs(r); return `<tr data-i="${i}" ${rowData(`${r.part_id} ${invName(r)} ${r.rb_fig || ""} ${c ? "" : "minifigure"}`, c, k)}>
+      <td>${picTag(invPics(r), `Picture of ${r.part_name || r.part_id}`)}</td>
       <td class="mono"><a href="${esc(blUrl(a.kind, a.no, a.blc, r.part_name))}" target="_blank" rel="noopener" title="Open on BrickLink">${esc(r.part_id)}</a></td>
-      <td>${esc(r.part_name)}${r.rb_fig ? `<div class="muted mono" style="font-size:12px">${esc(r.rb_fig)}</div>` : ""}${RBX && Core.rowType(r) === "part" && looksLikeFigPart({ name: r.part_name }) ? `<div><button class="btn small" type="button" data-figview="i${i}" style="margin-top:4px">Show the figure</button></div>` : ""}</td>
+      <td>${esc(invName(r))}${r.rb_fig ? `<div class="muted mono" style="font-size:12px">${esc(r.rb_fig)}</div>` : ""}${RBX && Core.rowType(r) === "part" && looksLikeFigPart({ name: r.part_name }) ? `<div><button class="btn small" type="button" data-figview="i${i}" style="margin-top:4px">Show the figure</button></div>` : ""}</td>
       <td>${Core.rowType(r) === "fig" ? `<span class="chip fig">Minifigure</span>` : `<span class="row" style="gap:6px;flex-wrap:nowrap">${swatch(r.color_name)}${esc(r.color_name || "Unknown")}</span>`}</td>
       <td class="num" data-v="${r.quantity}"><span class="qty"><button type="button" data-d="-1" aria-label="One fewer">−</button><span>${r.quantity}</span><button type="button" data-d="1" aria-label="One more">+</button></span></td>
       ${blOn ? `<td data-v="${(p => p == null ? "" : p)(a.noPrice || (a.kind === "part" && a.blc == null) ? null : priceEach(cachedPrice(priceKey(a.kind, a.no, a.blc))))}">${invPriceCell(a)}</td>` : ""}
@@ -2391,9 +2401,64 @@ $("#inv-prices").addEventListener("click", async () => {
   renderInventory();
   toast(failures.length ? `${failures.length} price${failures.length === 1 ? "" : "s"} failed: ${failures[0]}` : `Got ${todo.length} price${todo.length === 1 ? "" : "s"}`);
 });
+// Inventory pictures, best first: Rebrickable's picture of that exact part in that colour, then
+// BrickLink's, then the picture the scan came back with. A picture that won't load gives way to the next.
+function invPics(r) {
+  const out = [], blc = blColour(r.color_name);
+  if (Core.rowType(r) === "fig") {
+    if (r.rb_fig) out.push(figImg(r.rb_fig));
+    const no = r.bricklink_id || r.part_id;
+    if (no && !/^fig-/i.test(no)) out.push(`https://img.bricklink.com/ItemImage/MN/0/${encodeURIComponent(no)}.png`);
+  } else {
+    const rb = r.rb_part || rbOf(r.part_id) || r.part_id, cid = colourId(r.color_name);
+    if (cid != null) out.push(picUrl(rb, cid));
+    if (blc != null) out.push(`https://img.bricklink.com/ItemImage/PN/${blc}/${encodeURIComponent(r.bricklink_id || r.part_id)}.png`);
+    out.push(picAnyColour(rb));                           // the right part in another colour beats no picture
+  }
+  out.push(r.img_url);
+  return [...new Set(out.filter(Boolean))];
+}
+// Rebrickable's name when the row only has a number for one (e.g. an imported list).
+function invName(r) {
+  const n = r.part_name || "";
+  if (n && n.toLowerCase() !== String(r.part_id).toLowerCase() || Core.rowType(r) === "fig" || !RBX || !RBX.h.part_names) return n || r.part_id;
+  const i = rbxPart(r.rb_part || rbOf(r.part_id) || r.part_id);
+  return (i != null && RBX.h.part_names[i]) || n || r.part_id;
+}
+function picTag(list, label) {
+  if (!list.length) return "";
+  return `<button class="picbtn" type="button" data-pic aria-label="${esc(label)}"><img class="pic" src="${esc(list[0])}" data-fb="${esc(list.slice(1).join(" "))}" alt="" loading="lazy"></button>`;
+}
+function picNext(img) {                                   // try the next picture, or leave the space empty
+  const rest = (img.dataset.fb || "").split(" ").filter(Boolean);
+  if (!rest.length) { img.closest(".picbtn") ? img.closest(".picbtn").replaceWith() : img.remove(); return; }
+  img.dataset.fb = rest.slice(1).join(" "); img.src = rest[0];
+}
+document.addEventListener("error", e => { if (e.target instanceof HTMLImageElement && e.target.hasAttribute("data-fb")) picNext(e.target); }, true);
+function openPic(r, src) {
+  const fig = Core.rowType(r) === "fig";
+  $("#pic-title").textContent = invName(r);
+  const img = $("#pic-img");
+  img.dataset.fb = invPics(r).filter(u => u !== src).join(" "); img.src = src;
+  const rb = fig ? "" : r.rb_part || rbOf(r.part_id);
+  $("#pic-info").innerHTML = `
+    <div>${fig ? `<span class="chip fig">Minifigure</span>` : `<span class="row" style="gap:6px">${swatch(r.color_name)}${esc(r.color_name || "Unknown colour")}</span>`}</div>
+    <div class="muted mono">${esc(r.part_id)}${rb && rb.toLowerCase() !== String(r.part_id).toLowerCase() ? ` · Rebrickable ${esc(rb)}` : ""}${r.rb_fig ? ` · ${esc(r.rb_fig)}` : ""}</div>
+    <div>You have <b>${r.quantity}</b></div>${(() => {
+      if (fig || !rb || src !== picAnyColour(rb) || src === picUrl(rb, colourId(r.color_name))) return "";
+      const cid = picAnyColourId(rb), cname = (RBX && (RBX.h.colors.find(c => String(c[0]) === String(cid)) || [])[1]) || "another colour";
+      const only = Object.keys(rbxPartColours(rb)).length === 1;
+      return `<div class="notice">${only ? `Rebrickable only lists this part in <b>${esc(cname)}</b>, so the colour from the scan may be wrong.` : `The picture shows it in ${esc(cname)}; there's no picture in ${esc(r.color_name || "this colour")}.`}</div>`;
+    })()}`;
+  const d = $("#pic-dlg"); if (!d.open) d.showModal();
+}
+$("#pic-close").addEventListener("click", () => $("#pic-dlg").close());
+$("#pic-dlg").addEventListener("click", e => { if (e.target === e.currentTarget) e.currentTarget.close(); });
 $("#inv-table").addEventListener("click", e => {
   const tr = e.target.closest("tr[data-i]"); if (!tr) return;
   const r = inventory[+tr.dataset.i];
+  const pb = e.target.closest("[data-pic]");
+  if (pb) { const im = pb.querySelector("img"); if (im) openPic(r, im.currentSrc || im.src); return; }
   const d = e.target.closest("[data-d]");
   if (d) { r.quantity += +d.dataset.d; if (r.quantity <= 0) inventory.splice(+tr.dataset.i, 1); saveInventory(); renderInventory(); }
   if (e.target.closest("[data-del]")) { inventory.splice(+tr.dataset.i, 1); saveInventory(); renderInventory(); }
@@ -4291,7 +4356,7 @@ $("#train-clear").addEventListener("click", async () => {
 // A scanned torso, legs, head or helmet -> the Rebrickable part -> every minifigure with that part in
 // that colour -> the figure's parts with their exact pictures, what you have and what's missing.
 const RB_PICS = "https://cdn.rebrickable.com/media/parts/";
-let PICS = null, picsLoading = null;
+let PICS = null, PICS_ANY = null, picsLoading = null;
 function loadPics() {                                  // rb-pics.txt.gz: a picture for every part in every colour
   if (picsLoading) return picsLoading;
   picsLoading = (async () => {
@@ -4306,14 +4371,16 @@ function loadPics() {                                  // rb-pics.txt.gz: a pict
       try { await idbPut("rbpics", { built: RBX && RBX.built, bytes: gz }); } catch {}
     }
     const text = new TextDecoder().decode(gz[0] === 0x1f ? await new Response(new Blob([gz]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer() : gz);
-    const m = new Map();
-    for (const line of text.split("\n")) { const a = line.split("\t"); if (a.length === 3) m.set(`${a[0].toLowerCase()}|${a[1]}`, a[2]); }
-    PICS = m;
+    const m = new Map(), any = new Map();
+    for (const line of text.split("\n")) { const a = line.split("\t"); if (a.length !== 3) continue; const p = a[0].toLowerCase(); m.set(`${p}|${a[1]}`, a[2]); if (!any.has(p)) any.set(p, [a[2], a[1]]); }
+    PICS = m; PICS_ANY = any;
     return m;
   })().catch(e => { console.warn("part pictures not loaded", e); return null; });
   return picsLoading;
 }
 const picUrl = (part, cid) => { const p = PICS && PICS.get(`${String(part).toLowerCase()}|${cid}`); return p ? RB_PICS + p : ""; };
+const picAnyColour = part => { const p = PICS_ANY && PICS_ANY.get(String(part).toLowerCase()); return p ? RB_PICS + p[0] : ""; };
+const picAnyColourId = part => { const p = PICS_ANY && PICS_ANY.get(String(part).toLowerCase()); return p ? p[1] : null; };
 const figImg = fig => `https://cdn.rebrickable.com/media/sets/${encodeURIComponent(fig)}.jpg`;
 
 // BrickLink <-> Rebrickable part numbers (from the database when it was built with an API key).
@@ -4884,7 +4951,11 @@ renderAccount();
 linkLanding().then(() => { if (auth && !syncBusy) syncNow(); });
 
 blReady.then(on => { if (on) { renderReview(); if (!$("#view-inv").hidden) renderInventory(); } });
-setTimeout(() => loadIndex().then(x => { if (x && review.length) renderReview(); if (x) loadPics(); }), 1500);
+setTimeout(() => loadIndex().then(x => {
+  if (x && review.length) renderReview();
+  if (x) ensureColours().catch(() => {}).then(() => { if (!$("#view-inv").hidden) renderInventory(); });   // exact part numbers and colours, so better pictures
+  if (x) loadPics().then(m => { if (m && !$("#view-inv").hidden) renderInventory(); });
+}), 1500);
 $("#update-go").addEventListener("click", () => location.reload());
 checkForUpdate();
 document.addEventListener("visibilitychange", () => { if (!document.hidden) checkForUpdate(); });   // e.g. reopening from the Home Screen

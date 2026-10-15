@@ -58,6 +58,11 @@ instead and open the address it prints, e.g. `http://192.168.1.20:8642`, on
 the phone. Windows may ask whether to allow Python on private networks; allow
 it. The trained detector runs on the phone's CPU there, so it's slower.
 
+**Part pictures:** each Inventory row shows a picture of that exact part in its
+colour (Rebrickable's, else BrickLink's), so you can recognise it without
+opening another site. Tap the picture to see it large. Rows that only have a
+number get Rebrickable's name for the part.
+
 **Your saved data:** the browser keeps your inventory, API key, expected sets
 and detector per address (sign in to an account to share them between
 devices, see below). If you used the app as a file before, open the old
