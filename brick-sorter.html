@@ -1230,7 +1230,7 @@ const blReady = (async () => {
   return blOn;
 })();
 // The version of this page; version.json next to it says the newest one published.
-const APP_VERSION = "2026-10-15 10:21";
+const APP_VERSION = "2026-10-15 10:29";
 async function checkForUpdate() {
   if (!/^https?:$/.test(location.protocol) || APP_VERSION.startsWith("__")) return;
   try {
@@ -4369,7 +4369,8 @@ function bestGuess(blId, name, cid) {
   if (!guessCache.has(k)) {
     let list = guessRb(blId, name, cid);
     if (!list.length && cid != null) list = guessRb(blId, name, null);
-    const sure = list.length > 0 && list[0].sim >= 0.5 && (list.length === 1 || list[0].sim - list[1].sim >= 0.08);
+    // Sure enough: a very close name, or clearly closer than the next. The figure window still shows the picture to check.
+    const sure = list.length > 0 && list[0].sim >= 0.5 && (list.length === 1 || list[0].sim >= 0.8 || list[0].sim - list[1].sim >= 0.08);
     guessCache.set(k, { list, sure });
   }
   return guessCache.get(k);
