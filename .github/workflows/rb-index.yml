@@ -5,6 +5,9 @@ on:
   schedule:
     - cron: "17 20 * * 0"        # Sundays 20:17 UTC (Monday morning in Perth)
   workflow_dispatch:
+  push:                          # and once when the builder itself changes
+    branches: [main]
+    paths: [build_rb_index.py, .github/workflows/rb-index.yml]
 permissions:
   contents: write
 jobs:
@@ -16,15 +19,18 @@ jobs:
         with:
           python-version: "3.12"
       - name: Build the database
+        env:
+          REBRICKABLE_KEY: ${{ secrets.REBRICKABLE_KEY }}   # optional: adds BrickLink part numbers
         run: python build_rb_index.py --data /tmp/rebrickable-data
       - name: Commit it
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add rb-index.bin.gz rb-index.json
+          git add rb-index.bin.gz rb-index.json rb-pics.txt.gz
           if git diff --cached --quiet; then
             echo "No change"
           else
             git commit -m "Refresh Rebrickable database"
+            git pull --rebase
             git push
           fi

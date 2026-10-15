@@ -407,6 +407,31 @@ Every table only lets each person read and change their own rows. Supabase's
 built-in email sender only sends a few emails an hour; for more people, add
 your own email service under Authentication → Emails → SMTP.
 
+## From one minifigure part to the whole figure
+
+Scan loose minifigure parts (torsos, legs, heads, helmets, hair) on the Scan
+tab. Under each one the app says which minifigure it comes from, e.g. "From
+**Cole with Shoulder Armour** or 2 other minifigures". **Show the figure**
+opens it:
+
+- the figure's picture, and the sets it came in (each one a tap from My sets),
+- **every part with its exact picture in the right colour**, marked *This
+  part*, *Scanned*, *In your inventory* or **Missing**, with BrickLink and
+  Rebrickable links,
+- if the part is in several minifigures, all of them, the ones you have the
+  most parts for first,
+- **Buy the missing parts** as a BrickLink wanted list.
+
+The same button is on sort cards and on minifigure parts in the Inventory.
+
+Brickognize names parts with BrickLink's numbers, while minifigures are listed
+with Rebrickable's, and printed parts are numbered differently on the two
+(BrickLink `973pb1916c01` is Rebrickable `973c01h01pr2851`). The database
+includes the translation when it's built with a Rebrickable API key (see
+below). Until then the app matches by name; when it's sure it says "Probably
+from", and otherwise shows the closest parts' pictures to tap the right one.
+Your pick is remembered.
+
 ## Minifigures
 
 Photograph minifigures assembled, lying face up and spread out like parts.
@@ -505,6 +530,13 @@ a second:
 - **Name the figure**: every minifigure checked.
 - **Set checks**, **Sets in this pile** and the **Sort** tab's set bins, even
   without a Rebrickable key (part pictures come from BrickLink instead).
+
+It also writes `rb-pics.txt.gz` (about 1 MB): a picture for every part in
+every colour, used for the minifigure view and the parts tables. With a
+Rebrickable API key it adds every part's BrickLink numbers (about 65 API
+requests): set `REBRICKABLE_KEY` in the environment, or for the website add it
+as a repository secret (GitHub: Settings → Secrets and variables → Actions →
+New repository secret, name `REBRICKABLE_KEY`).
 
 The website (GitHub Pages) has it already: a GitHub job rebuilds it every
 week (`.github/workflows/rb-index.yml`; run it by hand from the repository's

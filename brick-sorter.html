@@ -268,6 +268,34 @@ details.setblock > summary { cursor: pointer; font-weight: 700; color: var(--acc
 .scard .acts select { padding: 4px 6px; font-size: 13px; max-width: 100%; }
 .scard .why { grid-column: 1 / -1; font-size: 13px; }
 .shop { display: grid; gap: 10px; }
+#fig-dlg { width: min(920px, calc(100vw - 16px)); max-height: calc(100dvh - 24px); padding: 0 16px 16px; overflow-y: auto; }
+.figbar-top { position: sticky; top: 0; z-index: 2; display: flex; justify-content: space-between; align-items: center; padding: 12px 0; background: var(--surface); border-bottom: 1px solid var(--line); margin-bottom: 4px; }
+.figsrc { font-size: 14px; }
+.notice.guessed { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; }
+.notice.guessed img { width: 48px; height: 48px; object-fit: contain; background: #fff; border-radius: 6px; }
+.notice.guessed span { flex: 1 1 180px; }
+.figline { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; padding: 6px 8px; border-radius: 8px; font-size: 13px; background: color-mix(in srgb, var(--mark) 14%, var(--surface)); }
+.figline img { width: 36px; height: 36px; object-fit: contain; background: #fff; border-radius: 6px; }
+.figline span { flex: 1 1 160px; min-width: 0; }
+.figpick { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+.figopt { flex: none; width: 112px; display: grid; gap: 3px; justify-items: center; text-align: center; padding: 6px; border: 2px solid var(--line); border-radius: 8px; background: var(--surface); cursor: pointer; font-size: 12px; }
+.figopt.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
+.figopt img { width: 72px; height: 72px; object-fit: contain; background: #fff; border-radius: 6px; }
+.figopt > span { width: 100%; overflow-wrap: anywhere; }
+.figopt > span:first-of-type { font-weight: 700; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.fighead { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 14px; align-items: center; padding-top: 6px; border-top: 1px solid var(--line); }
+.fighead img { width: 140px; height: 140px; object-fit: contain; background: #fff; border-radius: 10px; }
+.fparts { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.fpart { display: grid; gap: 4px; align-content: start; padding: 8px; border: 2px solid var(--line); border-radius: 10px; background: var(--surface); font-size: 13px; text-align: left; color: inherit; font: inherit; }
+.fpart.miss { border-color: var(--bad); background: color-mix(in srgb, var(--bad) 5%, var(--surface)); }
+.fpart.this { border-color: var(--accent); }
+.fpart.pick { cursor: pointer; }
+.fpart.pick:hover { border-color: var(--accent); }
+.fpic { aspect-ratio: 1; display: grid; place-items: center; background: #fff; border-radius: 8px; overflow: hidden; }
+.fpic img { width: 100%; height: 100%; object-fit: contain; }
+.fpart .chip { justify-self: start; }
+.figsets { display: grid; gap: 8px; margin-top: 6px; }
+@media (max-width: 560px) { .fighead { grid-template-columns: 96px minmax(0, 1fr); } .fighead img { width: 96px; height: 96px; } .fparts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .mscard { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; display: grid; gap: 10px; min-width: 0; }
 .mshead { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 14px; align-items: center; }
 .mshead img { width: 120px; height: 90px; object-fit: contain; background: #fff; border-radius: 8px; }
@@ -633,6 +661,10 @@ th[aria-sort="descending"]::after { content: " ▼"; }
     <div class="row"><button class="btn primary" value="save">Save</button><button class="btn" value="cancel" formnovalidate>Cancel</button></div>
     <p class="muted" style="margin:0;font-size:12px" id="app-version"></p>
   </form>
+</dialog>
+<dialog id="fig-dlg" aria-label="Minifigure">
+  <div class="figbar-top"><strong>Minifigure</strong><button class="icon-btn" type="button" id="fig-close" aria-label="Close">×</button></div>
+  <div id="fig-body" style="display:grid;gap:12px"></div>
 </dialog>
 <dialog id="merge-dlg">
   <form method="dialog" style="display:grid;gap:10px">
@@ -1198,7 +1230,7 @@ const blReady = (async () => {
   return blOn;
 })();
 // The version of this page; version.json next to it says the newest one published.
-const APP_VERSION = "2026-10-14 14:03";
+const APP_VERSION = "2026-10-15 10:21";
 async function checkForUpdate() {
   if (!/^https?:$/.test(location.protocol) || APP_VERSION.startsWith("__")) return;
   try {
@@ -2004,6 +2036,7 @@ function renderReview() {
       </div>
       ${cat && it ? whichSets(r) : ""}
       ${rareFlag(r)}
+      ${figLine(r)}
       ${r.notes.length ? `<div class="note">${r.notes.map(esc).join(". ")}.</div>` : ""}
       ${r.blobs && r.blobs.length ? `<details class="more"><summary>More photos of this item</summary>
         <div class="row">
@@ -2322,7 +2355,7 @@ function renderInventory() {
     <tbody>${rows.map(({ r, i, c, k }) => { const a = invPriceArgs(r); return `<tr data-i="${i}" ${rowData(`${r.part_id} ${r.part_name} ${r.rb_fig || ""} ${c ? "" : "minifigure"}`, c, k)}>
       <td>${r.img_url ? `<img src="${esc(r.img_url)}" alt="" loading="lazy">` : ""}</td>
       <td class="mono"><a href="${esc(blUrl(a.kind, a.no, a.blc, r.part_name))}" target="_blank" rel="noopener" title="Open on BrickLink">${esc(r.part_id)}</a></td>
-      <td>${esc(r.part_name)}${r.rb_fig ? `<div class="muted mono" style="font-size:12px">${esc(r.rb_fig)}</div>` : ""}</td>
+      <td>${esc(r.part_name)}${r.rb_fig ? `<div class="muted mono" style="font-size:12px">${esc(r.rb_fig)}</div>` : ""}${RBX && Core.rowType(r) === "part" && looksLikeFigPart({ name: r.part_name }) ? `<div><button class="btn small" type="button" data-figview="i${i}" style="margin-top:4px">Show the figure</button></div>` : ""}</td>
       <td>${Core.rowType(r) === "fig" ? `<span class="chip fig">Minifigure</span>` : `<span class="row" style="gap:6px;flex-wrap:nowrap">${swatch(r.color_name)}${esc(r.color_name || "Unknown")}</span>`}</td>
       <td class="num" data-v="${r.quantity}"><span class="qty"><button type="button" data-d="-1" aria-label="One fewer">−</button><span>${r.quantity}</span><button type="button" data-d="1" aria-label="One more">+</button></span></td>
       ${blOn ? `<td data-v="${(p => p == null ? "" : p)(a.noPrice || (a.kind === "part" && a.blc == null) ? null : priceEach(cachedPrice(priceKey(a.kind, a.no, a.blc))))}">${invPriceCell(a)}</td>` : ""}
@@ -2715,7 +2748,7 @@ function setBlock({ info, lines, figs }, multi) {
   const table = shown.length ? `${filterBar(fkey, kinds)}<div class="table-wrap"><table data-fkey="${esc(fkey)}">
       <thead><tr><th></th>${sortTh("Part")}${sortTh("Name")}${sortTh("Colour")}${sortTh("Need", "num")}${sortTh("Have", "num")}${sortTh("Missing", "num")}</tr></thead>
       <tbody>${shown.map((l, j) => `<tr class="${l.have === 0 ? "missing" : l.missing ? "partial" : ""}" ${rowData(`${l.part_num} ${(l.bl_ids || []).join(" ")} ${l.name}`, kinds[j].c, kinds[j].k)}>
-        <td>${(img => img ? `<img src="${esc(img)}" alt="" loading="lazy" onerror="this.remove()">` : "")(l.img || blImg(l, blColour(l.color_name)))}</td>
+        <td>${(img => img ? `<img src="${esc(img)}" alt="" loading="lazy" onerror="this.remove()">` : "")(l.img || picUrl(l.part_num, l.color_id) || blImg(l, blColour(l.color_name)))}</td>
         <td class="mono"><a href="${esc(blUrl("part", blIdOf(l), blColour(l.color_name)))}" target="_blank" rel="noopener">${esc(l.part_num)}</a></td>
         <td>${esc(l.name)}${l.match && l.match !== "exact" ? ` <span class="chip warn">${esc(l.match)}</span>` : ""}</td>
         <td><span class="row" style="gap:6px;flex-wrap:nowrap"><span class="swatch" style="background:#${esc(l.rgb)}"></span>${esc(l.color_name)}</span></td>
@@ -3702,6 +3735,7 @@ function cardHtml(c) {
       <span class="row" style="gap:4px 8px">${i.pid ? `<span class="chip ${pct >= 80 ? "ok" : "warn"}">${pct}%</span>` : ""}${c.inv ? `<span class="chip star">In inventory</span>` : ""}${c.rare ? `<span class="chip ok">${c.rare.n === 1 ? "Only in 1 set" : `In only ${c.rare.n} sets`}</span>` : ""}${links}</span></div>
     <div class="binbadge ${badge}"><b>${b.no}</b><small>${esc(b.sub || b.name)}</small></div>
     ${b.why || c.moved ? `<div class="why ${b.kind === "check" ? "" : "muted"}">${c.moved ? `<b>Moved to bin ${b.no}</b> after checking how rare it is. ` : ""}${esc(b.why)}${b.why ? "." : ""}</div>` : ""}
+    ${r && !c.restored ? figLine(r, "c" + c.id) : ""}
     <div class="acts">${acts}<button class="del" type="button" data-k="drop" title="Remove this card (and take it back out of its bin)" aria-label="Remove">×</button></div>
   </div>`;
 }
@@ -3773,7 +3807,7 @@ $("#sort-missing").addEventListener("click", async () => {
 // ---------- shopping list across sets, and a BrickLink wanted list ----------
 const shopLists = new Map();
 let shopSeq = 0;
-const blIdOf = l => (l.bl_ids && l.bl_ids[0]) || l.part_num;
+const blIdOf = l => (l.bl_ids && l.bl_ids[0]) || blOf(l.part_num);
 const blImg = (l, blc) => blc != null ? `https://img.bricklink.com/ItemImage/PN/${blc}/${encodeURIComponent(blIdOf(l))}.png` : "";
 function shoppingRows(results) {
   const m = new Map(), figs = [];
@@ -3820,7 +3854,7 @@ function shopBlock(results, title, lede) {
       <div class="table-wrap"><table data-fkey="${esc(fkey)}">
         <thead><tr><th></th>${sortTh("Part")}${sortTh("Name")}${sortTh("Colour")}${sortTh("Need", "num")}${sortTh("For")}</tr></thead>
         <tbody>${figs.map(f => `<tr ${rowData(`${f.fig_num} ${f.name} ${f.set} minifigure`, "", "Minifigures")}><td>${f.img ? `<img src="${esc(f.img)}" alt="" loading="lazy">` : ""}</td><td class="mono">${ext(`https://www.bricklink.com/v2/search.page?q=${encodeURIComponent(f.name)}#T=M`, esc(f.fig_num), "Search BrickLink for this minifigure")}</td><td>${esc(f.name)}</td><td><span class="chip fig">Minifigure</span></td><td class="num"><b>${f.missing}</b></td><td class="mono">${esc(f.set)}</td></tr>`).join("")}
-        ${parts.map((p, j) => { const blc = blColour(p.color_name), img = p.img || blImg(p, blc); return `<tr ${rowData(`${p.part_num} ${blIdOf(p)} ${p.name || ""} ${p.sets.join(" ")}`, p.color_name, kinds[j])}>
+        ${parts.map((p, j) => { const blc = blColour(p.color_name), img = p.img || picUrl(p.part_num, p.color_id) || blImg(p, blc); return `<tr ${rowData(`${p.part_num} ${blIdOf(p)} ${p.name || ""} ${p.sets.join(" ")}`, p.color_name, kinds[j])}>
           <td>${img ? `<img src="${esc(img)}" alt="" loading="lazy" onerror="this.remove()">` : ""}</td>
           <td class="mono"><a href="${esc(blUrl("part", blIdOf(p), blc))}" target="_blank" rel="noopener">${esc(blIdOf(p))}</a></td>
           <td>${esc(p.name || "")}</td>
@@ -3988,7 +4022,7 @@ async function renderParts(num) {
     ${filterBar(fkey, kinds)}
     <div class="table-wrap"><table data-fkey="${esc(fkey)}">
       <thead><tr><th></th>${sortTh("Part")}${sortTh("Name")}${sortTh("Colour")}${sortTh("Need", "num")}${sortTh("Found", "num")}${sortTh("Missing", "num")}</tr></thead>
-      <tbody>${lines.map((l, j) => { const blc = blColour(l.color_name), img = l.img || blImg(l, blc); return `<tr class="${l.have === 0 ? "missing" : l.missing ? "partial" : ""}" ${rowData(`${l.part_num} ${(l.bl_ids || []).join(" ")} ${l.name || ""}`, kinds[j].c, kinds[j].k)}>
+      <tbody>${lines.map((l, j) => { const blc = blColour(l.color_name), img = l.img || picUrl(l.part_num, l.color_id) || blImg(l, blc); return `<tr class="${l.have === 0 ? "missing" : l.missing ? "partial" : ""}" ${rowData(`${l.part_num} ${(l.bl_ids || []).join(" ")} ${l.name || ""}`, kinds[j].c, kinds[j].k)}>
         <td>${img ? `<img src="${esc(img)}" alt="" loading="lazy" onerror="this.remove()">` : ""}</td>
         <td class="mono"><a href="${esc(blUrl("part", blIdOf(l), blc))}" target="_blank" rel="noopener">${esc(l.part_num)}</a></td>
         <td>${esc(l.name || "")}</td>
@@ -4249,6 +4283,278 @@ $("#train-clear").addEventListener("click", async () => {
   b.dataset.sure = ""; b.textContent = "Delete them";
   await trainDo("readwrite", st => st.clear()).catch(() => {});
   renderTraining(); toast("Training photos deleted from this device");
+});
+
+// =================== MINIFIGURES: from one scanned part to the whole figure ===================
+// A scanned torso, legs, head or helmet -> the Rebrickable part -> every minifigure with that part in
+// that colour -> the figure's parts with their exact pictures, what you have and what's missing.
+const RB_PICS = "https://cdn.rebrickable.com/media/parts/";
+let PICS = null, picsLoading = null;
+function loadPics() {                                  // rb-pics.txt.gz: a picture for every part in every colour
+  if (picsLoading) return picsLoading;
+  picsLoading = (async () => {
+    if (!/^https?:$/.test(location.protocol)) return null;
+    await loadIndex();
+    let gz = null;
+    try { const saved = await idbGet("rbpics"); if (saved && RBX && saved.built === RBX.built) gz = saved.bytes; } catch {}
+    if (!gz) {
+      const r = await fetch("rb-pics.txt.gz", { cache: "no-store" }).catch(() => null);
+      if (!r || !r.ok) return null;
+      gz = new Uint8Array(await r.arrayBuffer());
+      try { await idbPut("rbpics", { built: RBX && RBX.built, bytes: gz }); } catch {}
+    }
+    const text = new TextDecoder().decode(gz[0] === 0x1f ? await new Response(new Blob([gz]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer() : gz);
+    const m = new Map();
+    for (const line of text.split("\n")) { const a = line.split("\t"); if (a.length === 3) m.set(`${a[0].toLowerCase()}|${a[1]}`, a[2]); }
+    PICS = m;
+    return m;
+  })().catch(e => { console.warn("part pictures not loaded", e); return null; });
+  return picsLoading;
+}
+const picUrl = (part, cid) => { const p = PICS && PICS.get(`${String(part).toLowerCase()}|${cid}`); return p ? RB_PICS + p : ""; };
+const figImg = fig => `https://cdn.rebrickable.com/media/sets/${encodeURIComponent(fig)}.jpg`;
+
+// BrickLink <-> Rebrickable part numbers (from the database when it was built with an API key).
+let BLMAP = null;
+function blMaps() {
+  if (BLMAP && BLMAP.built === (RBX && RBX.built)) return BLMAP;
+  BLMAP = { built: RBX && RBX.built, toRb: new Map(), toBl: new Map() };
+  for (const [p, ids] of Object.entries((RBX && RBX.h.bl) || {})) {
+    const list = String(ids).split(",").filter(Boolean);
+    if (list.length) BLMAP.toBl.set(p.toLowerCase(), list[0]);
+    for (const b of list) if (!BLMAP.toRb.has(b.toLowerCase())) BLMAP.toRb.set(b.toLowerCase(), p);
+  }
+  return BLMAP;
+}
+const blOf = part => blMaps().toBl.get(String(part).toLowerCase()) || part;
+// Rebrickable number for a scanned part, when it's known for sure (null otherwise).
+function rbOf(id) {
+  if (!id || !RBX) return null;
+  const s = String(id), fix = store.get("blFix", {})[s.toLowerCase()];
+  if (fix) return fix;
+  const m = blMaps().toRb.get(s.toLowerCase());
+  if (m) return m;
+  if (rbxPart(s) != null) return RBX.h.parts[rbxPart(s)];
+  return (rbCache.resolve || {})[s] || null;
+}
+let colourLook = null;
+const colourId = name => { if (!rbColors || !name) return null; if (!colourLook || colourLook.n !== rbColors.length) { colourLook = Core.buildColorLookup(rbColors); colourLook.n = rbColors.length; } return colourLook.get(Core.normColor(name)) ?? null; };
+// Minifigure parts grouped by their mould number (the digits a BrickLink and a Rebrickable number share).
+let figMoulds = null;
+function figPartsByMould() {
+  if (figMoulds) return figMoulds;
+  figMoulds = new Map();
+  const seen = new Set();
+  for (const k of rbxMaps().pcFig.keys()) {
+    const pi = Math.floor(k / 65536); if (seen.has(pi)) continue; seen.add(pi);
+    const m = /^\d+/.exec(RBX.h.parts[pi]); if (!m) continue;
+    if (!figMoulds.has(m[0])) figMoulds.set(m[0], []);
+    figMoulds.get(m[0]).push(pi);
+  }
+  return figMoulds;
+}
+// No sure match: the minifigure parts with the same mould and colour, most similar name first, to pick from by picture.
+function guessRb(blId, name, cid) {
+  const m = /^\d+/.exec(String(blId || "")); if (!m) return [];
+  const pc = rbxMaps().pcFig;
+  return (figPartsByMould().get(m[0]) || [])
+    .filter(pi => cid == null || pc.has(pi * 65536 + rbxCid(cid)))
+    .map(pi => ({ part: RBX.h.parts[pi], sim: Core.nameSimilarity(name, RBX.h.part_names ? RBX.h.part_names[pi] : "") }))
+    .sort((a, b) => b.sim - a.sim).slice(0, 12);
+}
+// The closest names, and whether the first is clearly the one (well ahead of the second).
+const guessCache = new Map();
+function bestGuess(blId, name, cid) {
+  const k = `${blId}|${cid}`;
+  if (!guessCache.has(k)) {
+    let list = guessRb(blId, name, cid);
+    if (!list.length && cid != null) list = guessRb(blId, name, null);
+    const sure = list.length > 0 && list[0].sim >= 0.5 && (list.length === 1 || list[0].sim - list[1].sim >= 0.08);
+    guessCache.set(k, { list, sure });
+  }
+  return guessCache.get(k);
+}
+function figsWith(part, cid) {                         // figure indices with a part (in a colour, or in any colour)
+  const pi = rbxPart(part); if (pi == null) return [];
+  const pc = rbxMaps().pcFig;
+  if (cid != null) return [...new Set(pc.get(pi * 65536 + rbxCid(cid)) || [])];
+  const out = new Set();
+  for (const [id] of RBX.h.colors) for (const f of pc.get(pi * 65536 + rbxCid(id)) || []) out.add(f);
+  return [...out];
+}
+const figLines = f => rbxOwnerLines(RBX.nSets + f, 1, false);
+const figKey = (part, cid) => `${String(part).toLowerCase()}|${cid}`;
+// What you have: the parts in your inventory, plus the ones being checked on the Scan tab now.
+function ownedParts() {
+  const m = new Map();
+  const add = (row, where, ref) => {
+    const cid = colourId(row.color_name);
+    let rb = row.rb_part || rbOf(row.part_id) || rbOf(row.bricklink_id);
+    if (!rb && row.part_name && /^\d/.test(String(row.part_id))) { const g = bestGuess(row.part_id, row.part_name, cid); if (g.sure) rb = g.list[0].part; }
+    if (!rb || cid == null) return;
+    const k = figKey(rb, cid), e = m.get(k) || { qty: 0, where, refs: [] };
+    e.qty += parseInt(row.quantity, 10) || 1; if (where === "scan") e.where = "scan"; if (ref) e.refs.push(ref);
+    m.set(k, e);
+  };
+  for (const r of inventory) if (Core.rowType(r) === "part" && (looksLikeFigPart({ name: r.part_name }) || r.rb_part || rbOf(r.part_id))) add(r, "inventory");
+  for (const r of review) {
+    if (r.skip || !r.items.length || r.kinds[r.item] !== "part") continue;
+    const it = r.items[r.item], c = r.colorOpts[r.colorSel], e = r.entries[r.item];
+    add({ part_id: it.id, part_name: it.name, bricklink_id: blFromItem(it), rb_part: (e && e.part_num) || "", color_name: c ? c.name : "", quantity: r.qty }, "scan", r.id);
+  }
+  return m;
+}
+function rankFigs(figs, owned) {
+  return figs.map(f => {
+    const lines = figLines(f);
+    const have = lines.filter(l => owned.has(figKey(l.part_num, l.color_id))).length;
+    return { f, have, total: lines.length };
+  }).sort((a, b) => b.have - a.have || a.total - b.total || RBX.h.figs[a.f][0].localeCompare(RBX.h.figs[b.f][0]));
+}
+// For a row on the Scan tab: which minifigures it can be from (null if it isn't a minifigure part or there's no database).
+function figInfoForRow(r) {
+  if (!RBX || !r.items.length) return null;
+  const it = r.items[r.item], kind = r.kinds[r.item];
+  if (kind === "fig") return { kind: "fig", name: it.name, id: it.id };
+  if (kind !== "part" || !(r.figPart || looksLikeFigPart(it))) return null;
+  const c = r.colorOpts[r.colorSel], cid = c ? colourId(c.name) : null, e = r.entries[r.item];
+  const base = { kind: "part", id: it.id, name: it.name, cid, colour: c ? c.name : "" };
+  const rb = (e && e.part_num) || rbOf(it.id) || rbOf(blFromItem(it));
+  if (rb) return { ...base, rb, figs: figsWith(rb, cid) };
+  const g = bestGuess(it.id, it.name, cid);
+  return g.sure ? { ...base, rb: g.list[0].part, guessed: true, alts: g.list, figs: figsWith(g.list[0].part, cid) } : { ...base, rb: null, alts: g.list, figs: [] };
+}
+function infoFromRow(row) {                            // an inventory row, the same way as a scanned one
+  const cid = colourId(row.color_name), base = { kind: "part", id: row.part_id, name: row.part_name || row.part_id, cid, colour: row.color_name || "" };
+  const rb = row.rb_part || rbOf(row.part_id) || rbOf(row.bricklink_id);
+  if (rb) return { ...base, rb, figs: figsWith(rb, cid) };
+  const g = bestGuess(row.part_id, row.part_name || "", cid);
+  return g.sure ? { ...base, rb: g.list[0].part, guessed: true, alts: g.list, figs: figsWith(g.list[0].part, cid) } : { ...base, rb: null, alts: g.list, figs: [] };
+}
+function figLine(r, ref = r.id) {
+  const info = figInfoForRow(r); if (!info) return "";
+  if (info.kind === "fig") return `<div class="figline"><span>A whole minifigure.</span><button class="btn small" type="button" data-figview="${ref}">Show its parts</button></div>`;
+  if (!info.rb) return `<div class="figline"><span>Which minifigure is this from?</span><button class="btn small" type="button" data-figview="${ref}">Find it</button></div>`;
+  if (!info.figs.length) return "";
+  const top = rankFigs(info.figs, ownedParts())[0], fig = RBX.h.figs[top.f];
+  return `<div class="figline">
+    <img src="${esc(figImg(fig[0]))}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">
+    <span>${info.guessed ? "Probably from" : "From"} <b>${esc(fig[1])}</b>${info.figs.length > 1 ? ` <span class="muted">or ${info.figs.length - 1} other minifigure${info.figs.length === 2 ? "" : "s"}</span>` : ""}</span>
+    <button class="btn small" type="button" data-figview="${ref}">Show the figure</button></div>`;
+}
+
+// ---------- the figure window ----------
+let figState = null;                                   // {info, cands: [{f, have, total}], sel, guess, rowId}
+async function openFigView(src) {
+  const d = $("#fig-dlg");
+  $("#fig-body").innerHTML = `<p class="muted">Loading…</p>`;
+  if (!d.open) d.showModal();
+  await loadIndex(); await ensureColours().catch(() => {}); loadPics().then(() => figState && renderFig());
+  if (!RBX) { $("#fig-body").innerHTML = `<div class="notice bad">This needs Rebrickable's database, which only loads on the website (or through serve.py).</div>`; return; }
+  figState = { ...src, guess: null, sel: null, cands: [] };
+  if (src.info.kind === "fig") {                       // a whole figure: the closest names among all minifigures
+    const short = src.info.name.split(" - ")[0];
+    const ranked = RBX.h.figs.map((x, f) => ({ f, s: Math.max(Core.nameSimilarity(src.info.name, x[1]), Core.nameSimilarity(short, x[1]) * 0.95) }))
+      .sort((a, b) => b.s - a.s).slice(0, 12).filter(x => x.s > 0);
+    figState.cands = ranked.map(x => ({ f: x.f, have: 0, total: figLines(x.f).length, sim: x.s }));
+  } else if (!src.info.rb) {                           // no sure match for the part: pick it by picture
+    figState.guess = src.info.alts || bestGuess(src.info.id, src.info.name, src.info.cid).list;
+  } else figState.cands = rankFigs(src.info.figs, ownedParts());
+  figState.sel = figState.cands.length ? figState.cands[0].f : null;
+  renderFig();
+}
+function partCard(l, owned, thisKey) {
+  const k = figKey(l.part_num, l.color_id), o = owned.get(k), bl = blOf(l.part_num), blc = blColour(l.color_name);
+  const status = k === thisKey ? ["this", "This part"] : o ? (o.where === "scan" ? ["have", "Scanned"] : ["have", "In your inventory"]) : ["miss", "Missing"];
+  const img = picUrl(l.part_num, l.color_id) || blImg({ part_num: bl }, blc);
+  return `<div class="fpart ${status[0]}">
+    <div class="fpic">${img ? `<img src="${esc(img)}" alt="" loading="lazy" onerror="this.remove()">` : ""}</div>
+    <span class="chip ${status[0] === "miss" ? "bad" : "ok"}">${status[1]}${l.quantity > 1 ? ` · ×${l.quantity}` : ""}</span>
+    <b>${esc(l.name || l.part_num)}</b>
+    <span class="row" style="gap:6px;flex-wrap:nowrap;font-size:13px">${swatch(l.color_name)}${esc(l.color_name)}</span>
+    <span class="links" style="font-size:12px">${ext(blUrl("part", bl, blc), "BrickLink", `Open ${bl} on BrickLink in this colour`)} ${ext(`https://rebrickable.com/parts/${encodeURIComponent(l.part_num)}/`, "Rebrickable", "Open on Rebrickable")}</span>
+  </div>`;
+}
+const FIG_ORDER = ["Minifig Headwear", "Minifig Headwear Accessories", "Minifig Heads", "Minifig Neckwear", "Minifig Upper Body", "Minifig Hipwear", "Minifig Lower Body", "Minifig Accessories", "Minifig Shields, Weapons, & Tools"];
+function renderFig() {
+  const s = figState; if (!s) return;
+  const owned = ownedParts(), info = s.info;
+  let html = `<div class="figsrc">${info.kind === "fig" ? `Your minifigure: <b>${esc(info.name)}</b>` : `Your part: <b>${esc(info.name)}</b>${info.colour ? ` in ${esc(info.colour)}` : ""} <span class="mono muted">${esc(info.id)}</span>`}</div>`;
+  if (info.guessed && !s.guess) {
+    const img = picUrl(info.rb, info.cid);
+    html += `<div class="notice guessed">${img ? `<img src="${esc(img)}" alt="">` : ""}<span>Matched by its name to <b>${esc(RBX.h.part_names ? RBX.h.part_names[rbxPart(info.rb)] : info.rb)}</b>. Not your part?</span>
+      <button class="btn small" type="button" data-notit>Pick it by picture</button></div>`;
+  }
+  if (s.guess) {
+    html += s.guess.length ? `<div class="notice">Which of these is your part? Brickognize's number for it isn't linked to Rebrickable's yet, so pick it by its picture.</div>
+      <div class="fparts">${s.guess.map((g, i) => { const img = picUrl(g.part, info.cid) || ""; return `<button type="button" class="fpart pick" data-guess="${i}">
+        <div class="fpic">${img ? `<img src="${esc(img)}" alt="" loading="lazy" onerror="this.remove()">` : ""}</div>
+        <b>${esc(RBX.h.part_names ? RBX.h.part_names[rbxPart(g.part)] : g.part)}</b><span class="mono muted" style="font-size:12px">${esc(g.part)}</span></button>`; }).join("")}</div>`
+      : `<div class="notice">No minifigure part in Rebrickable's database matches this one. Check the match on the card, or look it up on BrickLink.</div>`;
+    $("#fig-body").innerHTML = html; return;
+  }
+  if (!s.cands.length) { $("#fig-body").innerHTML = html + `<div class="notice">This part isn't in any minifigure in Rebrickable's database${info.cid != null ? " in this colour" : ""}.</div>`; return; }
+  if (s.cands.length > 1) html += `<div class="label" style="margin-top:4px">${info.kind === "fig" ? "Closest names" : `In ${s.cands.length} minifigures`}: tap one</div>
+    <div class="figpick">${s.cands.slice(0, 40).map(c => { const x = RBX.h.figs[c.f]; return `<button type="button" class="figopt ${c.f === s.sel ? "on" : ""}" data-fig="${c.f}">
+      <img src="${esc(figImg(x[0]))}" alt="" loading="lazy" onerror="this.style.visibility='hidden'"><span>${esc(x[1])}</span>${info.kind === "fig" ? "" : `<span class="muted">you have ${c.have} of ${c.total}</span>`}</button>`; }).join("")}</div>`;
+  const f = s.sel, x = RBX.h.figs[f], lines = figLines(f);
+  lines.sort((a, b) => { const ia = FIG_ORDER.indexOf(partCat(a.part_num)), ib = FIG_ORDER.indexOf(partCat(b.part_num)); return (ia < 0 ? 9 : ia) - (ib < 0 ? 9 : ib); });
+  const thisKey = info.kind === "part" ? figKey(info.rb, info.cid) : "";
+  const missing = lines.filter(l => figKey(l.part_num, l.color_id) !== thisKey && !owned.has(figKey(l.part_num, l.color_id)));
+  const sets = (rbxMaps().figSets[f] || []).map(rbxSetInfo);
+  html += `<div class="fighead">
+      <img src="${esc(figImg(x[0]))}" alt="${esc(x[1])}" onerror="this.style.visibility='hidden'">
+      <div style="display:grid;gap:6px;min-width:0">
+        <span class="label mono">${esc(x[0])}</span><h2>${esc(x[1])}</h2>
+        <span>${missing.length ? `<b>${missing.length} part${missing.length === 1 ? "" : "s"} missing</b> of ${lines.length}` : `<b>You have every part</b> (${lines.length})`}</span>
+        <span class="links">${ext(`https://rebrickable.com/minifigs/${encodeURIComponent(x[0])}/`, "Rebrickable", "This minifigure on Rebrickable")} ${ext(`https://www.bricklink.com/v2/search.page?q=${encodeURIComponent(x[1])}#T=M`, "BrickLink", "Find this minifigure on BrickLink")}</span>
+      </div></div>
+    <div class="fparts">${lines.map(l => partCard(l, owned, thisKey)).join("")}</div>
+    ${missing.length ? `<div class="row"><button class="btn primary" type="button" data-figshop>Buy the missing parts</button></div><div data-figshop-out></div>` : ""}
+    ${sets.length ? `<div><div class="label">Comes in ${sets.length === 1 ? "this set" : `${sets.length} sets`}</div><div class="figsets">${sets.slice(0, 8).map(st => `<div class="setchip">
+        ${st.set_img_url ? `<img src="${esc(st.set_img_url)}" alt="" loading="lazy">` : "<span></span>"}
+        <div class="t"><b>${esc(st.name)}</b><span class="mono muted">${esc(st.set_num)} · ${esc(st.year)}</span></div>
+        <button class="btn small" type="button" data-figset="${esc(st.set_num)}" ${mySet(st.set_num) ? "disabled" : ""}>${mySet(st.set_num) ? "In My sets" : "Add to My sets"}</button></div>`).join("")}</div></div>` : ""}`;
+  $("#fig-body").innerHTML = html;
+}
+$("#fig-body").addEventListener("click", async e => {
+  const s = figState; if (!s) return;
+  const g = e.target.closest("[data-guess]");
+  if (g) {                                             // the part was picked by its picture: remember it
+    const part = s.guess[+g.dataset.guess].part, fix = store.get("blFix", {});
+    fix[String(s.info.id).toLowerCase()] = part; store.set("blFix", fix);
+    Object.assign(s.info, { rb: part, guessed: false, figs: figsWith(part, s.info.cid) });
+    s.guess = null; s.cands = rankFigs(s.info.figs, ownedParts()); s.sel = s.cands.length ? s.cands[0].f : null;
+    renderFig(); renderReview(); return;
+  }
+  if (e.target.closest("[data-notit]")) { s.guess = s.info.alts || bestGuess(s.info.id, s.info.name, s.info.cid).list; renderFig(); return; }
+  const o = e.target.closest("[data-fig]");
+  if (o) { s.sel = +o.dataset.fig; renderFig(); $("#fig-dlg .fighead").scrollIntoView({ behavior: "smooth", block: "start" }); return; }
+  if (e.target.closest("[data-figshop]")) {
+    const owned = ownedParts(), x = RBX.h.figs[s.sel], thisKey = s.info.kind === "part" ? figKey(s.info.rb, s.info.cid) : "";
+    const lines = figLines(s.sel).map(l => { const k = figKey(l.part_num, l.color_id), have = k === thisKey || owned.has(k) ? l.quantity : 0;
+      return { ...l, bl_ids: [blOf(l.part_num)], img: picUrl(l.part_num, l.color_id), have, missing: l.quantity - have }; });
+    const out = $("#fig-body [data-figshop-out]");
+    out.innerHTML = shopBlock([{ info: { set_num: x[0], name: x[1] }, lines, figs: [] }], `Missing from ${x[1]}`, "Every part of this minifigure you don't have yet, ready to buy on BrickLink.");
+    applyTables(out); out.querySelector("details") && (out.querySelector("details").open = true);
+    return;
+  }
+  const b = e.target.closest("[data-figset]");
+  if (b) {
+    b.disabled = true;
+    try { await ensureColours(); ensureMySet(await setData(b.dataset.figset)); saveMySets(); b.textContent = "In My sets"; toast("Added to My sets"); }
+    catch (ex) { toast(ex.message); b.disabled = false; }
+  }
+});
+$("#fig-close").addEventListener("click", () => $("#fig-dlg").close());
+$("#fig-dlg").addEventListener("close", () => { figState = null; });
+document.addEventListener("click", e => {
+  const b = e.target.closest("[data-figview]"); if (!b) return;
+  const v = b.dataset.figview;
+  if (v.startsWith("i")) { const row = inventory[+v.slice(1)]; if (row) openFigView({ info: infoFromRow(row) }); return; }
+  const r = v.startsWith("c") ? (sortCards.find(c => "c" + c.id === v) || {}).r : review.find(x => x.id === +v);
+  if (!r) return;
+  const info = figInfoForRow(r); if (info) openFigView({ info, rowId: r.id });
 });
 
 // =================== ACCOUNT: sign in and sync with Supabase ===================
@@ -4575,7 +4881,7 @@ renderAccount();
 linkLanding().then(() => { if (auth && !syncBusy) syncNow(); });
 
 blReady.then(on => { if (on) { renderReview(); if (!$("#view-inv").hidden) renderInventory(); } });
-setTimeout(() => loadIndex().then(x => { if (x && review.length) renderReview(); }), 1500);
+setTimeout(() => loadIndex().then(x => { if (x && review.length) renderReview(); if (x) loadPics(); }), 1500);
 $("#update-go").addEventListener("click", () => location.reload());
 checkForUpdate();
 document.addEventListener("visibilitychange", () => { if (!document.hidden) checkForUpdate(); });   // e.g. reopening from the Home Screen
