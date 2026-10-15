@@ -20,7 +20,7 @@ jobs:
           python-version: "3.12"
       - name: Build the database
         env:
-          REBRICKABLE_KEY: ${{ secrets.REBRICKABLE_KEY }}   # optional: adds BrickLink part numbers
+          REBRICKABLE_KEY: ${{ secrets.REBRICKABLE_KEY }}   # repository secret (added 15 Oct 2026): adds BrickLink part numbers
         run: python build_rb_index.py --data /tmp/rebrickable-data
       - name: Commit it
         run: |
