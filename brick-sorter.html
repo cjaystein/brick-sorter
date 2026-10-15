@@ -284,6 +284,16 @@ td img.pic { width: 64px; height: 64px; background: #fff; border-radius: 6px; cu
 .figline { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; padding: 6px 8px; border-radius: 8px; font-size: 13px; background: color-mix(in srgb, var(--mark) 14%, var(--surface)); }
 .figline img { width: 36px; height: 36px; object-fit: contain; background: #fff; border-radius: 6px; }
 .figline span { flex: 1 1 160px; min-width: 0; }
+.figcheck { grid-column: 1 / -1; display: grid; gap: 8px; padding: 8px; border-radius: 8px; font-size: 13px; border: 1px solid var(--line); }
+.figcheck.bad { border-color: var(--bad); background: color-mix(in srgb, var(--bad) 6%, var(--surface)); }
+.fcparts { display: flex; flex-wrap: wrap; gap: 8px; }
+.fc { display: grid; gap: 2px; justify-items: center; width: 84px; text-align: center; font-size: 11px; line-height: 1.25; }
+.fc .pics { display: flex; gap: 2px; align-items: center; }
+.fc img { width: 40px; height: 40px; object-fit: contain; background: #fff; border-radius: 6px; border: 2px solid var(--line); }
+.fc.ok img { border-color: color-mix(in srgb, var(--good) 60%, transparent); }
+.fc.bad img.got { border-color: var(--bad); }
+.fc b { font-size: 11px; }
+.fc.ok b { color: var(--good); } .fc.bad b { color: var(--bad); } .fc.unk b, .fc.col b { color: var(--muted); } .fc.col b { color: var(--warn); }
 .figpick { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
 .figopt { flex: none; width: 112px; display: grid; gap: 3px; justify-items: center; text-align: center; padding: 6px; border: 2px solid var(--line); border-radius: 8px; background: var(--surface); cursor: pointer; font-size: 12px; }
 .figopt.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
@@ -456,6 +466,7 @@ th[aria-sort="descending"]::after { content: " ▼"; }
         <nav aria-label="What's in these photos" id="mode-nav"><button type="button" data-mode="parts">Parts</button><button type="button" data-mode="figs">Minifigures</button><button type="button" data-mode="mixed">Mixed</button></nav>
       </div>
       <p class="muted" style="margin:0;font-size:14px" id="mode-hint"></p>
+      <label class="check" id="fig-check-wrap"><input type="checkbox" id="fig-check"> Check each minifigure's parts (hat, head, torso, legs) against the figure it's named as</label>
       <div class="row">
         <button class="btn primary" id="identify">Identify parts</button>
         <span class="muted" id="identify-status"></span>
@@ -1350,7 +1361,7 @@ const blReady = (async () => {
   return blOn;
 })();
 // The version of this page; version.json next to it says the newest one published.
-const APP_VERSION = "2026-10-15 13:28";
+const APP_VERSION = "2026-10-15 14:13";
 async function checkForUpdate() {
   if (!/^https?:$/.test(location.protocol) || APP_VERSION.startsWith("__")) return;
   try {
@@ -1946,6 +1957,8 @@ const MODE_HINT = {
 function renderMode() {
   for (const b of document.querySelectorAll("#mode-nav button")) b.setAttribute("aria-selected", String(b.dataset.mode === scanMode));
   $("#mode-hint").textContent = MODE_HINT[scanMode];
+  $("#fig-check-wrap").hidden = scanMode === "parts";
+  $("#fig-check").checked = figCheckOn();
   updateDetectSummary();
 }
 $("#mode-nav").addEventListener("click", e => {
@@ -2268,7 +2281,7 @@ function renderReview() {
         ${links}
       </div>
       <div class="side">
-        <div class="row" style="gap:4px;justify-content:flex-end">${kind === "fig" ? `<span class="chip fig">Minifigure</span>` : ""}${chip}</div>
+        <div class="row" style="gap:4px;justify-content:flex-end">${kind === "fig" ? `<span class="chip fig">Minifigure</span>` : ""}${figCheckBad(r) ? `<span class="chip bad">Parts don't match</span>` : ""}${chip}</div>
         <div class="row" style="gap:6px">
           <input type="number" min="1" value="${r.qty}" data-k="qty" aria-label="Quantity" ${r.items.length ? "" : "disabled"}>
           <button class="btn" type="button" data-k="skip" ${r.items.length ? "" : "disabled"}>${r.skip ? "Include" : "Skip"}</button>
@@ -2278,6 +2291,7 @@ function renderReview() {
       ${cat && it ? whichSets(r) : ""}
       ${rareFlag(r)}
       ${figLine(r)}
+      ${figCheckHtml(r)}
       ${r.notes.length ? `<div class="note">${r.notes.map(esc).join(". ")}.</div>` : ""}
       ${r.blobs && r.blobs.length ? `<details class="more"><summary>More photos of this item</summary>
         <div class="row">
@@ -2291,6 +2305,7 @@ function renderReview() {
   renderFigbar();
   if (review.length && !rbColors && !coloursTried && store.get("rbKey", "")) { coloursTried = true; ensureColours().then(renderReview, () => {}); }
   checkRarity();
+  checkFigs();
 }
 $("#review").addEventListener("change", e => {
   const el = e.target, row = el.closest(".item"); if (!row) return;
@@ -2306,6 +2321,7 @@ $("#review").addEventListener("change", e => {
   renderReview();
 });
 $("#review").addEventListener("click", async e => {
+  if (e.target.closest("[data-k=asparts]")) { const r = review.find(x => x.id === +e.target.closest(".item").dataset.id); if (r) asParts(r); return; }
   const sp = e.target.closest("[data-k=split]");
   if (sp) {
     const r = review.find(x => x.id === +sp.closest(".item").dataset.id), p = r && photos.find(q => q.id === r.photoId);
@@ -2467,7 +2483,7 @@ $("#add-all").addEventListener("click", () => {
     } else if (kind === "part") {
       const c = r.colorOpts[r.colorSel], entry = r.entries[r.item];
       add(r, { type: "part", part_id: it.id, part_name: it.name, img_url: it.img_url, bricklink_id: blFromItem(it),
-        rb_part: entry ? entry.part_num : "", color_name: c ? c.name : "", color_id: c ? c.id : "", quantity: r.qty });
+        rb_part: entry ? entry.part_num : r.rbPart || "", color_name: c ? c.name : "", color_id: c ? c.id : "", quantity: r.qty });
       parts += r.qty;
     }
   }
@@ -5058,6 +5074,162 @@ $("#mf-prices").addEventListener("click", async () => {
   drawMinifigs(); toast(`Got ${todo.size} price${todo.size === 1 ? "" : "s"}`);
 });
 
+// =================== CHECKING A WHOLE MINIFIGURE PART BY PART ===================
+// Brickognize names a whole figure from its look, so a figure wearing someone else's legs still comes
+// back as the figure. To catch that, the photo is cut into three overlapping strips along its length
+// (hat and head, torso, legs) and each strip is identified as a part. Brickognize says what kind of
+// part each answer is (headgear, torso, legs...), so it doesn't matter which way up the figure lies.
+// Each kind is compared with the parts the figure really has (Rebrickable's parts list).
+const figCheckOn = () => store.get("figCheck", true);
+$("#fig-check").addEventListener("change", () => { store.set("figCheck", $("#fig-check").checked); cloudSoon(); if ($("#fig-check").checked) renderReview(); });
+const FC_SLOTS = [                                    // [slot, Brickognize category, Rebrickable categories, name]
+  ["headgear", /headgear(?! accessor)|hair|helmet|\bhat\b/i, ["Minifig Headwear"], "Hat or hair"],
+  ["head", /minifig(ure)?, head(?!gear|wear)/i, ["Minifig Heads"], "Head"],
+  ["neck", /neckwear/i, ["Minifig Neckwear"], "Neckwear"],
+  ["torso", /torso/i, ["Minifig Upper Body"], "Torso"],
+  ["legs", /legs|hips/i, ["Minifig Lower Body", "Minifig Hipwear"], "Legs"],
+];
+const bgSlot = cat => (FC_SLOTS.find(x => x[1].test(cat || "")) || [])[0] || null;
+const rbSlot = part => { const c = partCat(part); return (FC_SLOTS.find(x => x[2].includes(c)) || [])[0] || null; };
+const slotName = slot => (FC_SLOTS.find(x => x[0] === slot) || [])[3] || slot;
+// Cut the item's photo into three strips along its long side and identify each as a part (once per row).
+async function figStrips(r) {
+  if (r.fcStrips) return r.fcStrips;
+  const bmp = await createImageBitmap(r.blobs[0]), W = bmp.width, H = bmp.height, along = W > H * 1.15 ? "x" : "y";
+  const out = [];
+  for (const [a, b] of [[0, 0.42], [0.28, 0.68], [0.55, 1]]) {
+    const L = along === "x" ? W : H, s0 = Math.round(a * L), s1 = Math.round(b * L);
+    const c = document.createElement("canvas");
+    [c.width, c.height] = along === "x" ? [s1 - s0, H] : [W, s1 - s0];
+    c.getContext("2d").drawImage(bmp, along === "x" ? s0 : 0, along === "x" ? 0 : s0, c.width, c.height, 0, 0, c.width, c.height);
+    const blob = await new Promise(res => c.toBlob(res, "image/jpeg", 0.92));
+    out.push({ blob, url: c.toDataURL("image/jpeg", 0.8), res: await identifyOne(blob, "parts") });
+  }
+  bmp.close && bmp.close();
+  return (r.fcStrips = out);
+}
+// Rebrickable figures the row could be: the one linked to your sets first, then the closest names.
+function figCandidates(r) {
+  const it = r.items[r.item], out = [], add = f => { if (f != null && !out.includes(f)) out.push(f); };
+  const linked = r.figOpts && r.figOpts[r.figSel]; if (linked) add(RBX.figIdx.get(linked.fig_num));
+  if (r.rbFig) add(RBX.figIdx.get(r.rbFig));
+  const full = (it.name || "").replace(/\([^)]*\)/g, " ").replace(/\s+/g, " ").trim(), main = full.split(/ - |,|\//)[0].trim().toLowerCase();
+  if (main.length >= 3) RBX.h.figs.map((x, f) => ({ f, n: x[1] })).filter(x => x.n.toLowerCase().includes(main))
+    .map(x => ({ f: x.f, sim: Core.nameSimilarity(full, x.n) })).sort((a, b) => b.sim - a.sim).slice(0, 10).forEach(x => add(x.f));
+  return out;
+}
+const sameColour = (a, b) => a && b && Core.normColor(a) === Core.normColor(b);
+const printed = part => /pr\d|pat\d|pb\d/i.test(part);
+async function checkFigParts(r) {
+  const strips = await figStrips(r);
+  const seen = {};                                    // slot -> what the strips show, best first
+  strips.forEach((st, si) => {
+    const col = ((st.res && st.res.colors) || [])[0];
+    for (const it of ((st.res && st.res.items) || []).slice(0, 5)) {
+      const slot = bgSlot(it.category); if (!slot || it.score < 0.45) continue;
+      const bl = blFromItem(it);
+      (seen[slot] = seen[slot] || []).push({ id: it.id, bl, rb: rbOf(bl) || rbOf(it.id), name: it.name, img: it.img_url, score: it.score, colour: col && col.score >= 0.5 ? col.name : "", strip: si });
+    }
+  });
+  for (const k in seen) seen[k].sort((a, b) => b.score - a.score);
+  const judge = f => {
+    const lines = figLines(f).map(l => ({ ...l, slot: rbSlot(l.part_num) }));
+    let ok = 0, bad = 0;
+    const rows = lines.map(l => {
+      const got = l.slot && seen[l.slot];
+      if (!got) return { l, status: l.slot ? "unk" : "skip" };
+      const hit = got.find(g => g.rb && g.rb.toLowerCase() === l.part_num.toLowerCase());
+      if (hit) {
+        if (!printed(l.part_num) && hit.colour && hit.score >= 0.6 && !sameColour(hit.colour, l.color_name)) return { l, status: "col", got: hit };
+        ok++; return { l, status: "ok", got: hit };
+      }
+      if (got[0].score >= 0.6) { bad++; return { l, status: "bad", got: got[0] }; }
+      return { l, status: "unk" };
+    });
+    const extra = Object.keys(seen).filter(slot => !lines.some(l => l.slot === slot) && seen[slot][0].score >= 0.7).map(slot => ({ slot, got: seen[slot][0] }));
+    return { f, rows, ok, bad, extra };
+  };
+  const cands = figCandidates(r);
+  if (!cands.length) return { none: true, seen };
+  const judged = cands.map(judge);
+  const best = judged.reduce((a, b) => (b.ok - b.bad > a.ok - a.bad ? b : a), judged[0]);   // ties keep the closest name
+  return { ...best, seen };
+}
+// What the odd part really belongs to, e.g. "Krait's", for the message.
+function partOwner(rb, colour) {
+  if (!rb || rbxPart(rb) == null) return "";
+  const cid = colourId(colour);
+  let figs = cid != null ? figsWith(rb, cid) : [];
+  if (!figs.length) figs = figsWith(rb, null);
+  if (!figs.length) return "";
+  return `${RBX.h.figs[figs[0]][1]}'s${figs.length > 1 ? ` (or ${figs.length - 1} other figure${figs.length === 2 ? "'s" : "s'"})` : ""}`;
+}
+const fcKey = r => `${(r.items[r.item] || {}).id}|${r.figSel}|${r.rbFig || ""}`;
+const figCheckBad = r => r.kinds && r.kinds[r.item] === "fig" && r.fc && r.fcKey === fcKey(r) && (r.fc.bad > 0 || (r.fc.extra && r.fc.extra.length > 0));
+let figCheckBusy = false;
+async function checkFigs() {
+  if (figCheckBusy || !figCheckOn()) return;
+  const todo = () => review.find(x => x.kinds[x.item] === "fig" && !x.skip && !x.error && x.blobs && x.blobs.length && x.fcKey !== fcKey(x));
+  if (!todo()) return;
+  figCheckBusy = true;
+  try {
+    await loadIndex(); if (!RBX) return;
+    await ensureColours().catch(() => {});
+    for (let r; (r = todo());) {
+      const k = fcKey(r);
+      try { r.fc = await checkFigParts(r); } catch (e) { r.fc = { error: e instanceof NetError ? "couldn't reach Brickognize" : e.message }; }
+      r.fcKey = k;
+      renderReview();
+    }
+  } finally { figCheckBusy = false; }
+}
+function figCheckHtml(r) {
+  if (!r.kinds || r.kinds[r.item] !== "fig" || r.skip || r.error || !figCheckOn() || !(r.blobs && r.blobs.length)) return "";
+  if (!r.fc || r.fcKey !== fcKey(r)) return RBX || /^https?:$/.test(location.protocol) ? `<div class="figcheck muted">Checking its parts…</div>` : "";
+  const fc = r.fc;
+  if (fc.error) return `<div class="figcheck muted">Couldn't check its parts: ${esc(fc.error)}.</div>`;
+  if (fc.none) return `<div class="figcheck muted">Couldn't find this figure in Rebrickable's database to check its parts against.</div>`;
+  const x = RBX.h.figs[fc.f], name = x[1];
+  const pic = (u, cls = "") => u ? `<img class="${cls}" src="${esc(u)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">` : "";
+  const shown = fc.rows.filter(w => w.status !== "skip");
+  const checked = shown.filter(w => w.status !== "unk").length, bad = fc.bad + fc.extra.length;
+  const label = { ok: "Matches", bad: "Doesn't match", unk: "Not seen", col: "Check colour" };
+  return `<div class="figcheck ${bad ? "bad" : ""}">
+    <div><b>${bad ? `${bad === 1 ? "1 part doesn't" : `${bad} parts don't`} match ${esc(name)}` : checked ? `The parts match ${esc(name)}` : `Couldn't see its parts clearly enough to check them`}</b>
+      <span class="muted">· ${checked} of ${shown.length} checked · <span class="mono">${esc(x[0])}</span></span></div>
+    <div class="fcparts">${shown.map(w => `<div class="fc ${w.status}" title="${esc(`${w.l.name} (${w.l.color_name})`)}">
+        <div class="pics">${pic(picUrl(w.l.part_num, w.l.color_id) || picAnyColour(w.l.part_num))}${w.status === "bad" ? `→${pic(w.got.img, "got")}` : ""}</div>
+        <b>${esc(label[w.status])}</b><span>${esc(slotName(w.l.slot) || partCat(w.l.part_num).replace(/^Minifig /, ""))}</span></div>`).join("")}
+      ${fc.extra.map(e => `<div class="fc bad"><div class="pics">${pic(e.got.img, "got")}</div><b>Not ${esc(name)}'s</b><span>${esc(slotName(e.slot))}</span></div>`).join("")}</div>
+    ${bad ? `<div>${fc.rows.filter(w => w.status === "bad").concat(fc.extra).map(w => { const own = partOwner(w.got.rb, w.got.colour);
+        return `Its ${esc(slotName(w.l ? w.l.slot : w.slot).toLowerCase())} look${/s$/.test(slotName(w.l ? w.l.slot : w.slot)) ? "" : "s"} like <b>${esc(w.got.name)}</b>${own ? `, ${esc(own)}` : ""}.`; }).join(" ")}</div>
+      <div class="row"><button class="btn small primary" type="button" data-k="asparts">Add as separate parts instead</button><span class="muted">Then the Minifigs tab pairs them up with the right figures.</span></div>` : ""}
+  </div>`;
+}
+// Replace a mixed-up figure with its parts: the figure's own parts where they match (or couldn't be
+// seen), and what the photo actually shows where they don't. Each becomes a normal row to check.
+function asParts(r) {
+  const fc = r.fc; if (!fc || fc.f == null) return;
+  const mk = (id, name, colour, img, strip, rb) => {
+    const st = strip != null && r.fcStrips ? r.fcStrips[strip] : null;
+    const row = toReview({ crop: st ? st.url : r.crop, blob: st ? st.blob : null, photo: r.photo, n: r.n, mode: "parts",
+      res: { items: [{ id, name, img_url: img, type: "part", category: "Minifigure", score: 1, external_sites: [] }], colors: colour ? [{ id: String(blColour(colour) ?? ""), name: colour, score: 1 }] : [] } });
+    row.figPart = true; row.fromFig = RBX.h.figs[fc.f][1]; row.rbPart = rb || "";
+    return row;
+  };
+  const rows = [];
+  for (const w of fc.rows) {
+    if (w.status === "skip") continue;              // accessories: they're photographed on their own
+    if (w.status === "bad") rows.push(mk(w.got.bl, w.got.name, w.got.colour || w.l.color_name, w.got.img, w.got.strip, w.got.rb));
+    else rows.push(mk(blOf(w.l.part_num), w.l.name, w.status === "col" && w.got.colour ? w.got.colour : w.l.color_name, picUrl(w.l.part_num, w.l.color_id), w.got ? w.got.strip : null, w.l.part_num));
+  }
+  for (const e of fc.extra) rows.push(mk(e.got.bl, e.got.name, e.got.colour, e.got.img, e.got.strip, e.got.rb));
+  const at = review.indexOf(r);
+  if (at >= 0) review.splice(at, 1, ...rows);
+  renderReview();
+  toast(`${RBX.h.figs[fc.f][1]} is now ${rows.length} separate parts. Check them and add them`);
+}
+
 // =================== ACCOUNT: sign in and sync with Supabase ===================
 // Everything still lives in this browser first, so scanning works offline. When you're signed in,
 // changes go up a moment later and changes from your other devices come down when the page opens,
@@ -5069,7 +5241,7 @@ const SB_KEY = store.get("sbKey", "sb_publishable_tI7qU67aKW97yzKEPBmKBg_BoY8JgR
 let auth = store.get("auth", null);                // {access_token, refresh_token, expires_at, user: {id, email}}
 let syncBase = store.get("syncBase", null);        // what the account had at the last sync: {user, inv, state, lastPull, at}
 let syncBusy = null, syncTimer = null, syncState = "", refreshing = null;
-const PREF_KEYS = ["binRare", "binFigparts", "binOther", "sortAuto", "sortSound", "sortMode", "figsWhole", "blCond", "blGuide", "blCur", "scanMode"];
+const PREF_KEYS = ["binRare", "binFigparts", "binOther", "sortAuto", "sortSound", "sortMode", "figsWhole", "blCond", "blGuide", "blCur", "scanMode", "figCheck"];
 class SignedOut extends Error {}
 
 async function sbFetch(path, opts = {}, withUser = true) {

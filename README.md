@@ -479,6 +479,17 @@ Photograph minifigures assembled, lying face up and spread out like parts.
   sticker sheets it spots are skipped).
 - **Script:** `--mode figs` or `--mode mixed`.
 
+**Checking a figure's parts:** a figure wearing someone else's legs still
+looks like the figure, so with *Check each minifigure's parts* ticked (under
+*What's in these photos*, on by default) the app also cuts each figure's photo
+into three strips, identifies each as a part, and compares the hat or hair,
+head, neckwear, torso and legs with the parts that figure really has. A row
+whose parts don't match is flagged (*"Its legs look like ..., Krait's"*), and
+**Add as separate parts instead** turns it into its parts: the figure's own
+where they match, and what's really there where they don't. The Minifigs tab
+then pairs them with the right figures. This takes three more lookups per
+figure, and works best on a sharp photo of the figure lying on its own.
+
 Set checks count each set's minifigures as whole figures, with their heads,
 torsos and legs left out of the piece counts. To count those as separate parts
 instead, untick "Check minifigures as whole figures" (web app) or use
