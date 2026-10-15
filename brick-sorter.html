@@ -1361,7 +1361,7 @@ const blReady = (async () => {
   return blOn;
 })();
 // The version of this page; version.json next to it says the newest one published.
-const APP_VERSION = "2026-10-15 16:20";
+const APP_VERSION = "2026-10-15 16:25";
 async function checkForUpdate() {
   if (!/^https?:$/.test(location.protocol) || APP_VERSION.startsWith("__")) return;
   try {
@@ -5278,13 +5278,22 @@ function asParts(r, quiet) {
     row.figPart = true; row.fromFig = RBX.h.figs[fc.f][1]; row.rbPart = rb || "";
     return row;
   };
+  // What the photo shows, as the exact Rebrickable part in its colour: plain legs are one BrickLink
+  // number in every colour but a Rebrickable part (with its own name and picture) per colour.
+  const seenPart = (got, fallbackColour) => {
+    const colour = got.colour || fallbackColour, cid = colourId(colour), pc = rbxMaps().pcFig;
+    const rb = (cid != null && got.rbs.find(x => { const pi = rbxPart(x); return pi != null && (pc.has(pi * 65536 + rbxCid(cid)) || picUrl(x, cid)); })) || got.rb || got.rbs[0] || "";
+    const pi = rb ? rbxPart(rb) : null, name = pi != null && RBX.h.part_names && RBX.h.part_names[pi] ? RBX.h.part_names[pi] : got.name;
+    return mk(got.bl, name, colour, (rb && cid != null && picUrl(rb, cid)) || got.img, got.strip, rb);
+  };
   const rows = [];
   for (const w of fc.rows) {
     if (w.status === "skip") continue;              // accessories: they're photographed on their own
-    if (w.status === "bad") rows.push(mk(w.got.bl, w.got.name, w.got.colour || w.l.color_name, w.got.img, w.got.strip, w.got.rb));
-    else rows.push(mk(blOf(w.l.part_num), w.l.name, w.status === "col" && w.got.colour ? w.got.colour : w.l.color_name, picUrl(w.l.part_num, w.l.color_id), w.got ? w.got.strip : null, w.l.part_num));
+    if (w.status === "bad") rows.push(seenPart(w.got, w.l.color_name));
+    else if (w.status === "col") rows.push(seenPart({ ...w.got, colour: w.got.colour || w.l.color_name }, w.l.color_name));
+    else rows.push(mk(blOf(w.l.part_num), w.l.name, w.l.color_name, picUrl(w.l.part_num, w.l.color_id), w.got ? w.got.strip : null, w.l.part_num));
   }
-  for (const e of fc.extra) rows.push(mk(e.got.bl, e.got.name, e.got.colour, e.got.img, e.got.strip, e.got.rb));
+  for (const e of fc.extra) rows.push(seenPart(e.got, ""));
   const at = review.indexOf(r);
   if (at >= 0) review.splice(at, 1, ...rows);
   if (!quiet) { renderReview(); toast(`${RBX.h.figs[fc.f][1]} is now ${rows.length} separate parts. Check them and add them`); }
