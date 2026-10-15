@@ -313,6 +313,17 @@ td img.pic { width: 64px; height: 64px; background: #fff; border-radius: 6px; cu
 .fpart .chip { justify-self: start; }
 .figsets { display: grid; gap: 8px; margin-top: 6px; }
 .mflist { display: grid; gap: 10px; }
+.loc-field { display: grid; gap: 4px; }
+.linkish { border: 0; background: none; padding: 0; cursor: pointer; text-align: left; font: inherit; }
+.linkish.loc:hover { color: var(--accent); text-decoration: underline; }
+.loc { display: inline-flex; gap: 4px; align-items: center; font-size: 12px; color: var(--muted); }
+.loc::before { content: "📍"; }
+#find-dlg { width: min(760px, calc(100vw - 16px)); max-height: calc(100dvh - 24px); padding: 0 16px 16px; overflow-y: auto; }
+.findphoto canvas { width: 100%; height: auto; display: block; border-radius: 8px; }
+.findlegend { display: grid; gap: 6px; margin-top: 8px; }
+.findlegend > div { display: grid; grid-template-columns: 26px 44px minmax(0, 1fr); gap: 8px; align-items: center; font-size: 13px; }
+.findlegend .num { width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; font-weight: 800; font-size: 13px; }
+.findlegend img { width: 44px; height: 44px; object-fit: contain; background: #fff; border-radius: 6px; }
 #mf-shop-out:empty, #ms-shop-out:empty { display: none; }
 .mfcard { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px; padding: 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
 .mfpic { padding: 0; border: 0; background: #fff; border-radius: 8px; cursor: pointer; align-self: start; }
@@ -467,6 +478,10 @@ th[aria-sort="descending"]::after { content: " ▼"; }
       </div>
       <p class="muted" style="margin:0;font-size:14px" id="mode-hint"></p>
       <label class="check" id="fig-check-wrap"><input type="checkbox" id="fig-check"> Check each minifigure's parts (hat, head, torso, legs) against the figure it's named as</label>
+      <label class="loc-field"><span class="label">Where will these go?</span>
+        <input type="text" id="scan-loc" list="scan-locs" placeholder="e.g. Torsos box 1, or Tray 3" autocomplete="off">
+        <span class="muted" style="font-size:13px">Name the tray, bag or box you'll keep these parts in. Later the app shows you where each part is, on this photo.</span></label>
+      <datalist id="scan-locs"></datalist>
       <div class="row">
         <button class="btn primary" id="identify">Identify parts</button>
         <span class="muted" id="identify-status"></span>
@@ -718,6 +733,10 @@ th[aria-sort="descending"]::after { content: " ▼"; }
     <div class="row"><button class="btn primary" value="save">Save</button><button class="btn" value="cancel" formnovalidate>Cancel</button></div>
     <p class="muted" style="margin:0;font-size:12px" id="app-version"></p>
   </form>
+</dialog>
+<dialog id="find-dlg" aria-label="Where the parts are">
+  <div class="figbar-top"><strong id="find-title">Where they are</strong><button class="icon-btn" type="button" id="find-close" aria-label="Close">×</button></div>
+  <div id="find-body" style="display:grid;gap:14px"></div>
 </dialog>
 <dialog id="pic-dlg" aria-label="Part picture">
   <div class="figbar-top"><strong id="pic-title">Part</strong><button class="icon-btn" type="button" id="pic-close" aria-label="Close">×</button></div>
@@ -1361,7 +1380,7 @@ const blReady = (async () => {
   return blOn;
 })();
 // The version of this page; version.json next to it says the newest one published.
-const APP_VERSION = "2026-10-15 17:36";
+const APP_VERSION = "2026-10-15 18:04";
 async function checkForUpdate() {
   if (!/^https?:$/.test(location.protocol) || APP_VERSION.startsWith("__")) return;
   try {
@@ -1683,6 +1702,13 @@ async function detect(p) {
 
 // ---------- fixing the boxes by hand: split merged parts, draw missed ones ----------
 let photoTool = "off", undoStack = [];
+$("#scan-loc").value = store.get("scanLoc", "");
+$("#scan-loc").addEventListener("change", () => store.set("scanLoc", $("#scan-loc").value.trim()));
+function renderLocList() {
+  const all = new Set(); for (const r of inventory) for (const l of locLabels(r)) all.add(l);
+  $("#scan-locs").innerHTML = [...all].sort().map(l => `<option value="${esc(l)}">`).join("");
+}
+setTimeout(renderLocList);
 const TOOL_HINT = {
   off: "Tap a box to leave that item out. Tap again to bring it back.",
   split: "Tap a box that holds two or more touching parts to split it into one box per part. If it won't split, draw a box around each part instead.",
@@ -2480,7 +2506,18 @@ $("#add-all").addEventListener("click", async () => {
   let split = 0;
   for (const r of review.slice()) if (!r.skip && figCheckBad(r)) { asParts(r, true); split++; }
   let parts = 0, figs = 0;
-  const added = [], add = (r, row) => { addToInventory(row); added.push({ r, row }); };
+  const label = $("#scan-loc").value.trim() || `Scan ${new Date().toLocaleString(undefined, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}`;
+  store.set("scanLoc", $("#scan-loc").value.trim());
+  const scanIds = new Map();                           // photo -> its saved copy
+  for (const r of review) {
+    const pid = r.photoId ?? r.srcPhoto, p = pid != null && photos.find(q => q.id === pid);
+    if (p && !r.skip && !scanIds.has(pid)) scanIds.set(pid, p.scanId || (p.scanId = `${Date.now().toString(36)}-${p.id}`));
+  }
+  const added = [], add = (r, row) => {
+    const pid = r.photoId ?? r.srcPhoto, s = pid != null ? scanIds.get(pid) : null;
+    row.locs = [{ l: label, s: s || "", b: s ? (r.srcBox ?? r.n) - 1 : -1, q: row.quantity }];
+    addToInventory(row); added.push({ r, row });
+  };
   for (const r of review) {
     if (r.skip || !r.items.length) continue;
     const it = r.items[r.item], kind = r.kinds[r.item];
@@ -2497,6 +2534,8 @@ $("#add-all").addEventListener("click", async () => {
     }
   }
   saveInventory();
+  for (const [pid, sid] of scanIds) { const p = photos.find(q => q.id === pid); if (p) saveScan(p, sid, label).catch(e => console.warn("scan photo not kept", e)); }
+  renderLocList();
   trainFromReview(added);
   review = []; figCands = []; renderReview();
   const bits = [];
@@ -2584,10 +2623,25 @@ const invKey = r => `${Core.rowType(r)}|${String(r.part_id).toLowerCase()}|${Cor
 function addToInventory(row) {
   const q = Math.max(0, parseInt(row.quantity, 10) || 0); if (!row.part_id || !q) return;
   const k = invKey(row), ex = inventory.find(r => invKey(r) === k);
-  if (ex) { ex.quantity += q; for (const f of FIELDS) if (!ex[f] && row[f]) ex[f] = row[f]; }
-  else inventory.push({ type: Core.rowType(row), part_id: String(row.part_id), part_name: row.part_name || "", color_name: row.color_name || "", color_id: row.color_id ?? "",
-    quantity: q, bricklink_id: row.bricklink_id || "", rb_part: row.rb_part || "", rb_fig: row.rb_fig || "", img_url: row.img_url || "" });
+  if (ex) { ex.quantity += q; for (const f of FIELDS) if (!ex[f] && row[f]) ex[f] = row[f]; addLocs(ex, row.locs); }
+  else { const r = { type: Core.rowType(row), part_id: String(row.part_id), part_name: row.part_name || "", color_name: row.color_name || "", color_id: row.color_id ?? "",
+    quantity: q, bricklink_id: row.bricklink_id || "", rb_part: row.rb_part || "", rb_fig: row.rb_fig || "", img_url: row.img_url || "" }; addLocs(r, row.locs); inventory.push(r); }
 }
+// Where a part is: [{l: "Torsos box 1", s: scan photo id, b: box number in it, q: pieces}].
+function addLocs(r, locs) {
+  if (!locs || !locs.length) return;
+  r.locs = r.locs || [];
+  for (const x of locs) {
+    const ex = r.locs.find(y => y.l === x.l && y.s === x.s && y.b === x.b);
+    if (ex) ex.q = (ex.q || 1) + (x.q || 1); else r.locs.push({ l: x.l || "", s: x.s || "", b: x.b ?? -1, q: x.q || 1 });
+  }
+}
+function takeLocs(r, n) {                              // n pieces left a row: drop their places (oldest first)
+  if (!r.locs) return;
+  while (n > 0 && r.locs.length) { const x = r.locs[0], t = Math.min(n, x.q || 1); x.q = (x.q || 1) - t; n -= t; if (x.q <= 0) r.locs.shift(); }
+  if (!r.locs.length) delete r.locs;
+}
+function locLabels(r) { return [...new Set((r.locs || []).map(x => x.l).filter(Boolean))]; }
 function saveInventory(push = true) {
   inventory.sort((a, b) => (Core.rowType(a) === "fig" ? 0 : 1) - (Core.rowType(b) === "fig" ? 0 : 1) || (a.part_name || "").localeCompare(b.part_name || "") || (a.color_name || "").localeCompare(b.color_name || ""));
   if (!store.set("inventory", inventory)) toast("Couldn't save in this browser. Export a CSV to keep your inventory.");
@@ -2630,7 +2684,7 @@ function renderInventory() {
     <tbody>${rows.map(({ r, i, c, k }) => { const a = invPriceArgs(r); return `<tr data-i="${i}" ${rowData(`${r.part_id} ${invName(r)} ${r.rb_fig || ""} ${c ? "" : "minifigure"}`, c, k)}>
       <td>${picTag(invPics(r), `Picture of ${r.part_name || r.part_id}`)}</td>
       <td class="mono"><a href="${esc(blUrl(a.kind, a.no, a.blc, r.part_name))}" target="_blank" rel="noopener" title="Open on BrickLink">${esc(r.part_id)}</a></td>
-      <td>${esc(invName(r))}${r.rb_fig ? `<div class="muted mono" style="font-size:12px">${esc(r.rb_fig)}</div>` : ""}${RBX && Core.rowType(r) === "part" && looksLikeFigPart({ name: r.part_name }) ? `<div><button class="btn small" type="button" data-figview="i${i}" style="margin-top:4px">Show the figure</button></div>` : ""}</td>
+      <td>${esc(invName(r))}${locLabels(r).length ? `<div><button type="button" class="linkish loc" data-find="i${i}" title="Show where it is">${esc(locLabels(r).join(", "))}</button></div>` : ""}${r.rb_fig ? `<div class="muted mono" style="font-size:12px">${esc(r.rb_fig)}</div>` : ""}${RBX && Core.rowType(r) === "part" && looksLikeFigPart({ name: r.part_name }) ? `<div><button class="btn small" type="button" data-figview="i${i}" style="margin-top:4px">Show the figure</button></div>` : ""}</td>
       <td>${Core.rowType(r) === "fig" ? `<span class="chip fig">Minifigure</span>` : `<span class="row" style="gap:6px;flex-wrap:nowrap">${swatch(r.color_name)}${esc(r.color_name || "Unknown")}</span>`}</td>
       <td class="num" data-v="${r.quantity}"><span class="qty"><button type="button" data-d="-1" aria-label="One fewer">−</button><span>${r.quantity}</span><button type="button" data-d="1" aria-label="One more">+</button></span></td>
       ${blOn ? `<td data-v="${(p => p == null ? "" : p)(a.noPrice || (a.kind === "part" && a.blc == null) ? null : priceEach(cachedPrice(priceKey(a.kind, a.no, a.blc))))}">${invPriceCell(a)}</td>` : ""}
@@ -2725,18 +2779,19 @@ $("#inv-table").addEventListener("click", e => {
   const pb = e.target.closest("[data-pic]");
   if (pb) { const im = pb.querySelector("img"); if (im) openPic(r, im.currentSrc || im.src); return; }
   const d = e.target.closest("[data-d]");
-  if (d) { r.quantity += +d.dataset.d; if (r.quantity <= 0) inventory.splice(+tr.dataset.i, 1); saveInventory(); renderInventory(); }
+  if (d) { r.quantity += +d.dataset.d; if (+d.dataset.d < 0) takeLocs(r, 1); if (r.quantity <= 0) inventory.splice(+tr.dataset.i, 1); saveInventory(); renderInventory(); }
   if (e.target.closest("[data-del]")) { inventory.splice(+tr.dataset.i, 1); saveInventory(); renderInventory(); }
 });
 $("#export-inv").addEventListener("click", () => {
   if (!inventory.length) return toast("Inventory is empty");
-  download(`brick-inventory-${new Date().toISOString().slice(0, 10)}.csv`, Core.toCSV(inventory, FIELDS));
+  download(`brick-inventory-${new Date().toISOString().slice(0, 10)}.csv`, Core.toCSV(inventory.map(r => ({ ...r, location: locLabels(r).join("; ") })), FIELDS.concat("location")));
 });
 $("#import-inv").addEventListener("change", async e => {
   const file = e.target.files[0]; e.target.value = ""; if (!file) return;
   const rows = Core.parseCSV(await file.text());
   let n = 0;
-  for (const r of rows) { if (!r.part_id) continue; addToInventory({ ...r, quantity: r.quantity || 1 }); n += parseInt(r.quantity, 10) || 1; }
+  for (const r of rows) { if (!r.part_id) continue; const q = parseInt(r.quantity, 10) || 1;
+    addToInventory({ ...r, quantity: q, locs: (r.location || "").split(";").map(x => x.trim()).filter(Boolean).map(l => ({ l, q })) }); n += q; }
   saveInventory(); renderInventory();
   toast(n ? `Imported ${n} item${n === 1 ? "" : "s"}` : "No rows with a part_id column found");
 });
@@ -4839,12 +4894,14 @@ async function openFigView(src) {
 function partCard(l, owned, thisKey) {
   const k = figKey(l.part_num, l.color_id), o = owned.get(k), bl = blOf(l.part_num), blc = blColour(l.color_name);
   const status = k === thisKey ? ["this", "This part"] : o ? (o.where === "scan" ? ["have", "Scanned"] : ["have", "In your inventory"]) : ["miss", "Missing"];
+  const pi = rbxPart(l.part_num), locs = pi != null ? (partCard.where || new Map()).get(pi * 65536 + rbxCid(l.color_id)) || [] : [];
   const img = picUrl(l.part_num, l.color_id) || blImg({ part_num: bl }, blc);
   return `<div class="fpart ${status[0]}">
     <div class="fpic">${img ? `<img src="${esc(img)}" alt="" loading="lazy" onerror="this.remove()">` : ""}</div>
     <span class="chip ${status[0] === "miss" ? "bad" : "ok"}">${status[1]}${l.quantity > 1 ? ` · ×${l.quantity}` : ""}</span>
     <b>${esc(l.name || l.part_num)}</b>
     <span class="row" style="gap:6px;flex-wrap:nowrap;font-size:13px">${swatch(l.color_name)}${esc(l.color_name)}</span>
+    ${locs.length ? `<button type="button" class="linkish loc" data-find="p${esc(l.part_num)}|${l.color_id}" title="Show where it is">${esc([...new Set(locs.map(x => x.l))].join(", "))}</button>` : ""}
     <span class="links" style="font-size:12px">${ext(blUrl("part", bl, blc), "BrickLink", `Open ${bl} on BrickLink in this colour`)} ${ext(`https://rebrickable.com/parts/${encodeURIComponent(l.part_num)}/`, "Rebrickable", "Open on Rebrickable")}</span>
   </div>`;
 }
@@ -4882,7 +4939,8 @@ function renderFig() {
         <span>${missing.length ? `<b>${missing.length} part${missing.length === 1 ? "" : "s"} missing</b> of ${lines.length}` : `<b>You have every part</b> (${lines.length})`}</span>
         <span class="links">${ext(`https://rebrickable.com/minifigs/${encodeURIComponent(x[0])}/`, "Rebrickable", "This minifigure on Rebrickable")} ${ext(`https://www.bricklink.com/v2/search.page?q=${encodeURIComponent(x[1])}#T=M`, "BrickLink", "Find this minifigure on BrickLink")}</span>
       </div></div>
-    <div class="fparts">${lines.map(l => partCard(l, owned, thisKey)).join("")}</div>
+    <div class="fparts">${(partCard.where = locsByKey(), lines.map(l => partCard(l, owned, thisKey)).join(""))}</div>
+    ${lines.some(l => { const pi = rbxPart(l.part_num); return pi != null && partCard.where.has(pi * 65536 + rbxCid(l.color_id)); }) ? `<div class="row"><button class="btn small" type="button" data-find="f${f}">Find its parts</button></div>` : ""}
     ${missing.length ? `<div class="row"><button class="btn primary" type="button" data-figshop>Buy the missing parts</button></div><div data-figshop-out></div>` : ""}
     ${sets.length ? `<div><div class="label">Comes in ${sets.length === 1 ? "this set" : `${sets.length} sets`}</div><div class="figsets">${sets.slice(0, 8).map(st => `<div class="setchip">
         ${st.set_img_url ? `<img src="${esc(st.set_img_url)}" alt="" loading="lazy">` : "<span></span>"}
@@ -5050,6 +5108,7 @@ function drawMinifigs() {
     const ranked = all.map(i => ({ i, pct: setsCache.has(i) ? setsCache.get(i) : (setsCache.set(i, setHavePct(i, s.own)), setsCache.get(i)) })).sort((a, b) => b.pct - a.pct);
     return { ...rbxSetInfo(ranked[0].i), pct: ranked[0].pct, more: all.length - 1 };
   };
+  const where = locsByKey();
   $("#mf-list").innerHTML = list.slice(0, s.shown).map(c => {
     const x = RBX.h.figs[c.f], lines = c.lines.map((_, i) => mfLine(c, i));
     lines.sort((a, b) => { const ia = FIG_ORDER.indexOf(partCat(a.part_num)), ib = FIG_ORDER.indexOf(partCat(b.part_num)); return (ia < 0 ? 9 : ia) - (ib < 0 ? 9 : ib); });
@@ -5065,12 +5124,21 @@ function drawMinifigs() {
         ${miss.length ? `<div class="mfmiss">Missing: ${miss.map(l => `${esc(l.name || l.part_num)} <span class="muted">(${esc(l.color_name)}${l.missing > 1 ? ` ×${l.missing}` : ""})</span>`).join("; ")}</div>` : ""}
         ${st ? `<div class="mfset"><span>Came in <b>${esc(st.name)}</b> <span class="mono muted">${esc(st.set_num)}</span>${st.more ? ` <span class="muted">and ${st.more} other set${st.more === 1 ? "" : "s"}</span>` : ""}: ${pctText(st.pct)}</span>
           <button class="btn small" type="button" data-figset="${esc(st.set_num)}" ${mySet(st.set_num) ? "disabled" : ""}>${mySet(st.set_num) ? "In My sets" : "Add to My sets"}</button></div>` : ""}
-        <div><button class="btn small" type="button" data-mf="${c.f}">Show the figure</button></div>
+        ${(() => { const here = [...new Set(c.lines.flatMap(l => (where.get(l.k) || []).map(y => y.l)).filter(Boolean))];
+          return here.length ? `<div class="loc">${esc(here.join(", "))}</div>` : ""; })()}
+        <div class="row" style="gap:6px"><button class="btn small" type="button" data-mf="${c.f}">Show the figure</button>
+          ${c.lines.some(l => where.has(l.k)) ? `<button class="btn small" type="button" data-find="f${c.f}">Find its parts</button>` : ""}
+          ${!c.miss ? `<button class="btn small" type="button" data-built="${c.f}">I built it</button>` : ""}</div>
       </div></article>`;
   }).join("") + (list.length > s.shown ? `<div class="row"><button class="btn" type="button" id="mf-more">Show ${Math.min(40, list.length - s.shown)} more (of ${list.length - s.shown})</button></div>` : "");
 }
 $("#mf-list").addEventListener("click", async e => {
   if (e.target.closest("#mf-more")) { mfState.shown += 40; drawMinifigs(); return; }
+  const bt = e.target.closest("[data-built]");
+  if (bt) {
+    if (bt.dataset.sure !== "1") { bt.dataset.sure = "1"; bt.textContent = "Tap again: take its parts out"; setTimeout(() => { if (bt.isConnected) { bt.dataset.sure = ""; bt.textContent = "I built it"; } }, 4000); return; }
+    builtFig(+bt.dataset.built); return;
+  }
   const m = e.target.closest("[data-mf]");
   if (m) { const x = RBX.h.figs[+m.dataset.mf]; openFigView({ info: { kind: "build", name: x[1], id: x[0] }, fig: +m.dataset.mf }); return; }
   const b = e.target.closest("[data-figset]");
@@ -5294,7 +5362,7 @@ function asParts(r, quiet) {
     const st = strip != null && r.fcStrips ? r.fcStrips[strip] : null;
     const row = toReview({ crop: st ? st.url : r.crop, blob: st ? st.blob : null, photo: r.photo, n: r.n, mode: "parts",
       res: { items: [{ id, name, img_url: img, type: "part", category: "Minifigure", score: 1, external_sites: [] }], colors: colour ? [{ id: String(blColour(colour) ?? ""), name: colour, score: 1 }] : [] } });
-    row.figPart = true; row.fromFig = RBX.h.figs[fc.f][1]; row.rbPart = rb || "";
+    row.figPart = true; row.fromFig = RBX.h.figs[fc.f][1]; row.rbPart = rb || ""; row.srcPhoto = r.photoId ?? r.srcPhoto; row.srcBox = r.n;
     return row;
   };
   // What the photo shows, as the exact Rebrickable part in its colour: plain legs are one BrickLink
@@ -5317,6 +5385,111 @@ function asParts(r, quiet) {
   if (at >= 0) review.splice(at, 1, ...rows);
   if (!quiet) { renderReview(); toast(`${RBX.h.figs[fc.f][1]} is now ${rows.length} separate parts. Check them and add them`); }
   return rows.length;
+}
+
+// =================== WHERE PARTS ARE ===================
+// Each scanned photo is kept on this device (at most 1600 px) with its boxes, and every part added from
+// it remembers the place you named and its box. "Where" then shows your own photo with the parts outlined.
+async function saveScan(p, sid, label) {
+  if (await idbGet("scan:" + sid).catch(() => null)) return;
+  const k = Math.min(1, 1600 / Math.max(p.w, p.h)), w = Math.round(p.w * k), h = Math.round(p.h * k), f = k / p.scale;
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  c.getContext("2d").drawImage(p.img, 0, 0, w, h);
+  const blob = await new Promise(res => c.toBlob(res, "image/jpeg", 0.85));
+  const boxes = p.boxes.map(b => (b.tight || [b.x0, b.y0, b.x1, b.y1]).map(v => Math.round(v * f)));
+  await idbPut("scan:" + sid, { name: p.name, label, w, h, blob, boxes, t: Date.now() });
+}
+// Inventory parts by Rebrickable part and colour (part index * 65536 + colour), with their places.
+function locsByKey() {
+  const m = new Map(); if (!RBX) return m;
+  for (const r of inventory) {
+    if (Core.rowType(r) !== "part" || !r.locs) continue;
+    const x = rowRb(r); if (!x) continue;
+    const pi = rbxPart(x.rb); if (pi == null) continue;
+    const k = pi * 65536 + rbxCid(x.cid);
+    m.set(k, (m.get(k) || []).concat(r.locs));
+  }
+  return m;
+}
+// items: [{name, colour, img, locs}]; shows each saved photo once, with every item in it outlined and numbered.
+async function openFind(title, items) {
+  const d = $("#find-dlg"); $("#find-title").textContent = title;
+  const body = $("#find-body"); body.innerHTML = `<p class="muted">Loading…</p>`;
+  if (!d.open) d.showModal();
+  items.forEach((it, i) => (it.n = i + 1));
+  const byScan = new Map(), nowhere = [];
+  for (const it of items) {
+    const ls = (it.locs || []).filter(x => x.s && x.b >= 0);
+    if (!ls.length) { nowhere.push(it); continue; }
+    for (const x of ls) { if (!byScan.has(x.s)) byScan.set(x.s, { label: x.l, marks: [] }); const g = byScan.get(x.s); if (!g.marks.some(m => m.it === it && m.b === x.b)) g.marks.push({ it, b: x.b }); }
+  }
+  const legend = list => `<div class="findlegend">${list.map(it => `<div><span class="num">${it.n}</span>${it.img ? `<img src="${esc(it.img)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">` : "<span></span>"}<span><b>${esc(it.name)}</b>${it.colour ? ` <span class="muted">${esc(it.colour)}</span>` : ""}</span></div>`).join("")}</div>`;
+  const parts = [];
+  for (const [sid, g] of byScan) {
+    const rec = await idbGet("scan:" + sid).catch(() => null);
+    const itemsHere = [...new Set(g.marks.map(m => m.it))];
+    if (!rec) { parts.push(`<div><div class="label">${esc(g.label || "Somewhere")}</div><p class="muted" style="margin:4px 0">The photo is on the device it was scanned with.</p>${legend(itemsHere)}</div>`); continue; }
+    parts.push(`<div class="findphoto" data-scan="${esc(sid)}"><div class="label">${esc(rec.label || g.label || rec.name)}</div><canvas></canvas>${legend(itemsHere)}</div>`);
+    g.rec = rec;
+  }
+  if (nowhere.length) parts.push(`<div><div class="label">No photo kept</div>${nowhere.map(it => `<div style="font-size:13px">${esc(it.name)}${it.colour ? ` (${esc(it.colour)})` : ""}: ${esc([...new Set((it.locs || []).map(x => x.l).filter(Boolean))].join(", ") || "added before places were kept")}</div>`).join("")}</div>`);
+  body.innerHTML = parts.join("") || `<p class="muted">Nothing to show.</p>`;
+  const css = getComputedStyle(document.documentElement), accent = css.getPropertyValue("--accent").trim() || "#1d5bbf";
+  for (const [sid, g] of byScan) {
+    if (!g.rec) continue;
+    const wrap = body.querySelector(`[data-scan="${CSS.escape(sid)}"]`), cv = wrap.querySelector("canvas"), rec = g.rec;
+    const bmp = await createImageBitmap(rec.blob);
+    cv.width = rec.w; cv.height = rec.h;
+    const ctx = cv.getContext("2d");
+    ctx.drawImage(bmp, 0, 0); ctx.fillStyle = "rgba(0,0,0,.45)"; ctx.fillRect(0, 0, rec.w, rec.h);
+    const lw = Math.max(3, rec.w / 220), fs = Math.max(18, rec.w / 32);
+    for (const m of g.marks) {                         // the parts shown bright, everything else dimmed
+      const bx = rec.boxes[m.b]; if (!bx) continue;
+      const [x0, y0, x1, y1] = bx, pad = lw * 2;
+      ctx.drawImage(bmp, x0 - pad, y0 - pad, x1 - x0 + 2 * pad, y1 - y0 + 2 * pad, x0 - pad, y0 - pad, x1 - x0 + 2 * pad, y1 - y0 + 2 * pad);
+      ctx.lineWidth = lw; ctx.strokeStyle = accent; ctx.strokeRect(x0 - pad, y0 - pad, x1 - x0 + 2 * pad, y1 - y0 + 2 * pad);
+      ctx.font = `800 ${fs}px system-ui, sans-serif`; const t = String(m.it.n), tw = ctx.measureText(t).width + fs * 0.6;
+      ctx.fillStyle = accent; ctx.fillRect(x0 - pad, y0 - pad - fs * 1.2, tw, fs * 1.2);
+      ctx.fillStyle = "#fff"; ctx.textBaseline = "top"; ctx.fillText(t, x0 - pad + fs * 0.3, y0 - pad - fs * 1.1);
+    }
+    bmp.close && bmp.close();
+  }
+}
+$("#find-close").addEventListener("click", () => $("#find-dlg").close());
+// A figure's parts and where they are (each part as many times as the figure needs it).
+function figFindItems(f) {
+  const where = locsByKey();
+  return figLines(f).map(l => {
+    const pi = rbxPart(l.part_num), k = pi * 65536 + rbxCid(l.color_id);
+    return { name: l.name || l.part_num, colour: l.color_name, img: picUrl(l.part_num, l.color_id), locs: where.get(k) || [], have: where.has(k) };
+  });
+}
+document.addEventListener("click", e => {
+  const b = e.target.closest("[data-find]"); if (!b) return;
+  const v = b.dataset.find;
+  if (v.startsWith("i")) { const r = inventory[+v.slice(1)]; if (r) openFind(`Where: ${invName(r)}`, [{ name: invName(r), colour: r.color_name, img: invPics(r)[0], locs: r.locs }]); return; }
+  if (v.startsWith("f")) { const f = +v.slice(1), x = RBX.h.figs[f]; openFind(`Parts for ${x[1]}`, figFindItems(f).filter(it => it.locs.length)); return; }
+  if (v.startsWith("p")) { const [part, cid] = v.slice(1).split("|"), pi = rbxPart(part); const locs = locsByKey().get(pi * 65536 + rbxCid(+cid)) || [];
+    const name = RBX.h.part_names ? RBX.h.part_names[pi] : part; openFind(`Where: ${name}`, [{ name, colour: colourName(+cid), img: picUrl(part, +cid), locs }]); }
+});
+// I built it: one of each part leaves the inventory and the figure goes in whole.
+function builtFig(f) {
+  const x = RBX.h.figs[f], lines = figLines(f);
+  for (const l of lines) {
+    const pi = rbxPart(l.part_num), key = pi * 65536 + rbxCid(l.color_id);
+    let q = l.quantity;
+    for (const r of inventory) {
+      if (q <= 0) break;
+      if (Core.rowType(r) !== "part") continue;
+      const y = rowRb(r); if (!y) continue;
+      const p2 = rbxPart(y.rb); if (p2 == null || p2 * 65536 + rbxCid(y.cid) !== key) continue;
+      const t = Math.min(q, r.quantity); r.quantity -= t; q -= t; takeLocs(r, t);
+    }
+  }
+  inventory = inventory.filter(r => r.quantity > 0);
+  addToInventory({ type: "fig", part_id: x[0], part_name: x[1], rb_fig: x[0], img_url: figImg(x[0]), quantity: 1 });
+  saveInventory();
+  toast(`${x[1]} is built: it's in your inventory as a whole minifigure`);
 }
 
 // =================== ACCOUNT: sign in and sync with Supabase ===================
@@ -5418,7 +5591,7 @@ async function signOut(clear) {
 }
 
 // ---------- what's here vs what the account has ----------
-const fieldsOf = r => JSON.stringify(Object.fromEntries(FIELDS.filter(f => f !== "quantity").map(f => [f, r[f] ?? ""])));
+const fieldsOf = r => JSON.stringify({ ...Object.fromEntries(FIELDS.filter(f => f !== "quantity").map(f => [f, r[f] ?? ""])), ...(r.locs && r.locs.length ? { locs: r.locs } : {}) });
 function localInv() {
   const m = {};
   for (const r of inventory) { const k = invKey(r); m[k] = { q: (m[k] ? m[k].q : 0) + (parseInt(r.quantity, 10) || 0), d: fieldsOf(r) }; }

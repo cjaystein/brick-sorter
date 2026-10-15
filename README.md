@@ -467,6 +467,16 @@ Tap a figure to see all its parts.
 - With BrickLink prices on (through serve.py), **Get BrickLink prices** adds
   each figure's part-out value and the list can be sorted by it.
 
+**Where each part is:** on the Scan tab, type where the parts will go
+(*Where will these go?*, e.g. "Torsos box 1" or "Tray 3") before adding them.
+The photo is kept on that device with every part's box, and each inventory row
+remembers its place (synced, and in the CSV's location column). On a Minifigs
+card, in the figure window and in the Inventory, tap the place or **Find its
+parts**: your own photo opens with those parts outlined and numbered.
+
+**I built it** (on Ready to build cards, tap twice): one of each of the
+figure's parts leaves the inventory and the figure goes in whole.
+
 The figure window (Show the figure) also shows how much of each set the
 figure came in you already have.
 
