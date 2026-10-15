@@ -1361,7 +1361,7 @@ const blReady = (async () => {
   return blOn;
 })();
 // The version of this page; version.json next to it says the newest one published.
-const APP_VERSION = "2026-10-15 14:13";
+const APP_VERSION = "2026-10-15 14:26";
 async function checkForUpdate() {
   if (!/^https?:$/.test(location.protocol) || APP_VERSION.startsWith("__")) return;
   try {
@@ -4656,11 +4656,16 @@ const figImg = fig => `https://cdn.rebrickable.com/media/sets/${encodeURICompone
 let BLMAP = null;
 function blMaps() {
   if (BLMAP && BLMAP.built === (RBX && RBX.built)) return BLMAP;
-  BLMAP = { built: RBX && RBX.built, toRb: new Map(), toBl: new Map() };
+  BLMAP = { built: RBX && RBX.built, toRb: new Map(), toBl: new Map(), toRbAll: new Map() };
   for (const [p, ids] of Object.entries((RBX && RBX.h.bl) || {})) {
     const list = String(ids).split(",").filter(Boolean);
     if (list.length) BLMAP.toBl.set(p.toLowerCase(), list[0]);
-    for (const b of list) if (!BLMAP.toRb.has(b.toLowerCase())) BLMAP.toRb.set(b.toLowerCase(), p);
+    for (const b of list) {
+      const k = b.toLowerCase();
+      if (!BLMAP.toRb.has(k)) BLMAP.toRb.set(k, p);
+      if (!BLMAP.toRbAll.has(k)) BLMAP.toRbAll.set(k, []);
+      BLMAP.toRbAll.get(k).push(p);
+    }
   }
   return BLMAP;
 }
@@ -5108,14 +5113,32 @@ async function figStrips(r) {
   bmp.close && bmp.close();
   return (r.fcStrips = out);
 }
-// Rebrickable figures the row could be: the one linked to your sets first, then the closest names.
-function figCandidates(r) {
+// Every Rebrickable number a part seen in the photo could be (BrickLink has one number for plain legs in
+// every colour; Rebrickable has one per colour).
+const rbAll = (bl, id) => { const m = blMaps(), a = new Set([...(m.toRbAll.get(String(bl).toLowerCase()) || []), ...(m.toRbAll.get(String(id).toLowerCase()) || [])]);
+  for (const x of [bl, id]) { const i = rbxPart(x); if (i != null) a.add(RBX.h.parts[i]); }
+  return [...a].map(x => x.toLowerCase()); };
+// Rebrickable figures the row could be: the ones that have the printed parts the photo shows (a printed
+// torso or head narrows it to a handful), the one linked to your sets, and the closest names.
+function figCandidates(r, seen) {
   const it = r.items[r.item], out = [], add = f => { if (f != null && !out.includes(f)) out.push(f); };
+  const pc = rbxMaps().pcFig, byParts = new Map();
+  for (const slot in seen) for (const g of seen[slot].slice(0, 3)) {
+    if (g.score < 0.5) continue;
+    for (const rb of g.rbs) {
+      const pi = rbxPart(rb); if (pi == null) continue;
+      const figs = new Set(); for (const [id] of RBX.h.colors) for (const f of pc.get(pi * 65536 + rbxCid(id)) || []) figs.add(f);
+      if (figs.size > 300) continue;                  // a plain part: in too many figures to narrow anything down
+      for (const f of figs) byParts.set(f, (byParts.get(f) || 0) + g.score);
+    }
+  }
+  [...byParts].sort((a, b) => b[1] - a[1]).slice(0, 40).forEach(([f]) => add(f));
   const linked = r.figOpts && r.figOpts[r.figSel]; if (linked) add(RBX.figIdx.get(linked.fig_num));
   if (r.rbFig) add(RBX.figIdx.get(r.rbFig));
   const full = (it.name || "").replace(/\([^)]*\)/g, " ").replace(/\s+/g, " ").trim(), main = full.split(/ - |,|\//)[0].trim().toLowerCase();
-  if (main.length >= 3) RBX.h.figs.map((x, f) => ({ f, n: x[1] })).filter(x => x.n.toLowerCase().includes(main))
-    .map(x => ({ f: x.f, sim: Core.nameSimilarity(full, x.n) })).sort((a, b) => b.sim - a.sim).slice(0, 10).forEach(x => add(x.f));
+  const nums = (full.match(/\b\d{3,}\b/g) || []);     // e.g. the 86753 on a prison shirt
+  if (main.length >= 3 || nums.length) RBX.h.figs.map((x, f) => ({ f, n: x[1].toLowerCase() })).filter(x => (main.length >= 3 && x.n.includes(main)) || nums.some(n => x.n.includes(n)))
+    .map(x => ({ f: x.f, sim: Core.nameSimilarity(full, RBX.h.figs[x.f][1]) })).sort((a, b) => b.sim - a.sim).slice(0, 10).forEach(x => add(x.f));
   return out;
 }
 const sameColour = (a, b) => a && b && Core.normColor(a) === Core.normColor(b);
@@ -5128,7 +5151,7 @@ async function checkFigParts(r) {
     for (const it of ((st.res && st.res.items) || []).slice(0, 5)) {
       const slot = bgSlot(it.category); if (!slot || it.score < 0.45) continue;
       const bl = blFromItem(it);
-      (seen[slot] = seen[slot] || []).push({ id: it.id, bl, rb: rbOf(bl) || rbOf(it.id), name: it.name, img: it.img_url, score: it.score, colour: col && col.score >= 0.5 ? col.name : "", strip: si });
+      (seen[slot] = seen[slot] || []).push({ id: it.id, bl, rb: rbOf(bl) || rbOf(it.id), rbs: rbAll(bl, it.id), name: it.name, img: it.img_url, score: it.score, colour: col && col.score >= 0.5 ? col.name : "", strip: si });
     }
   });
   for (const k in seen) seen[k].sort((a, b) => b.score - a.score);
@@ -5138,7 +5161,7 @@ async function checkFigParts(r) {
     const rows = lines.map(l => {
       const got = l.slot && seen[l.slot];
       if (!got) return { l, status: l.slot ? "unk" : "skip" };
-      const hit = got.find(g => g.rb && g.rb.toLowerCase() === l.part_num.toLowerCase());
+      const mine = l.part_num.toLowerCase(), hit = got.find(g => g.rbs.includes(mine));
       if (hit) {
         if (!printed(l.part_num) && hit.colour && hit.score >= 0.6 && !sameColour(hit.colour, l.color_name)) return { l, status: "col", got: hit };
         ok++; return { l, status: "ok", got: hit };
@@ -5149,23 +5172,25 @@ async function checkFigParts(r) {
     const extra = Object.keys(seen).filter(slot => !lines.some(l => l.slot === slot) && seen[slot][0].score >= 0.7).map(slot => ({ slot, got: seen[slot][0] }));
     return { f, rows, ok, bad, extra };
   };
-  const cands = figCandidates(r);
+  const cands = figCandidates(r, seen);
   if (!cands.length) return { none: true, seen };
-  const judged = cands.map(judge);
-  const best = judged.reduce((a, b) => (b.ok - b.bad > a.ok - a.bad ? b : a), judged[0]);   // ties keep the closest name
-  return { ...best, seen };
+  const judged = cands.map(judge), sc = j => j.ok * 2 - j.bad - j.rows.filter(w => w.status === "col").length * 0.5;
+  let best = judged[0];
+  for (const j of judged) if (sc(j) > sc(best)) best = j;
+  // Brickognize's own figure first when it does as well (it saw the whole figure, the strips saw pieces)
+  return { ...best, seen, unsure: best.ok === 0 || best.bad > best.ok };
 }
-// What the odd part really belongs to, e.g. "Krait's", for the message.
+// Which figure the odd part comes from, e.g. "from Krait", for the message.
 function partOwner(rb, colour) {
   if (!rb || rbxPart(rb) == null) return "";
   const cid = colourId(colour);
   let figs = cid != null ? figsWith(rb, cid) : [];
   if (!figs.length) figs = figsWith(rb, null);
   if (!figs.length) return "";
-  return `${RBX.h.figs[figs[0]][1]}'s${figs.length > 1 ? ` (or ${figs.length - 1} other figure${figs.length === 2 ? "'s" : "s'"})` : ""}`;
+  return `from ${RBX.h.figs[figs[0]][1]}${figs.length > 1 ? ` (or ${figs.length - 1} other figure${figs.length === 2 ? "" : "s"})` : ""}`;
 }
 const fcKey = r => `${(r.items[r.item] || {}).id}|${r.figSel}|${r.rbFig || ""}`;
-const figCheckBad = r => r.kinds && r.kinds[r.item] === "fig" && r.fc && r.fcKey === fcKey(r) && (r.fc.bad > 0 || (r.fc.extra && r.fc.extra.length > 0));
+const figCheckBad = r => r.kinds && r.kinds[r.item] === "fig" && r.fc && r.fcKey === fcKey(r) && !r.fc.unsure && (r.fc.bad > 0 || (r.fc.extra && r.fc.extra.length > 0));
 let figCheckBusy = false;
 async function checkFigs() {
   if (figCheckBusy || !figCheckOn()) return;
@@ -5178,7 +5203,8 @@ async function checkFigs() {
     for (let r; (r = todo());) {
       const k = fcKey(r);
       try { r.fc = await checkFigParts(r); } catch (e) { r.fc = { error: e instanceof NetError ? "couldn't reach Brickognize" : e.message }; }
-      r.fcKey = k;
+      if (r.fc && r.fc.f != null && !r.fc.unsure && !r.fc.bad && r.fc.ok >= 2 && !r.rbFig && !(r.figOpts && r.figOpts[r.figSel])) r.rbFig = RBX.h.figs[r.fc.f][0];   // the exact figure
+      r.fcKey = fcKey(r);
       renderReview();
     }
   } finally { figCheckBusy = false; }
@@ -5193,9 +5219,10 @@ function figCheckHtml(r) {
   const pic = (u, cls = "") => u ? `<img class="${cls}" src="${esc(u)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">` : "";
   const shown = fc.rows.filter(w => w.status !== "skip");
   const checked = shown.filter(w => w.status !== "unk").length, bad = fc.bad + fc.extra.length;
-  const label = { ok: "Matches", bad: "Doesn't match", unk: "Not seen", col: "Check colour" };
-  return `<div class="figcheck ${bad ? "bad" : ""}">
-    <div><b>${bad ? `${bad === 1 ? "1 part doesn't" : `${bad} parts don't`} match ${esc(name)}` : checked ? `The parts match ${esc(name)}` : `Couldn't see its parts clearly enough to check them`}</b>
+  const label = { ok: "Matches", bad: fc.unsure ? "Looks different" : "Doesn't match", unk: "Not seen", col: "Check colour" };
+  return `<div class="figcheck ${bad && !fc.unsure ? "bad" : ""}">
+    <div><b>${fc.unsure ? (checked ? `Couldn't work out exactly which figure this is. Closest: ${esc(name)}` : `Couldn't see its parts clearly enough to check them`)
+      : bad ? `${bad === 1 ? "1 part doesn't" : `${bad} parts don't`} match ${esc(name)}` : checked ? `The parts match ${esc(name)}` : `Couldn't see its parts clearly enough to check them`}</b>
       <span class="muted">· ${checked} of ${shown.length} checked · <span class="mono">${esc(x[0])}</span></span></div>
     <div class="fcparts">${shown.map(w => `<div class="fc ${w.status}" title="${esc(`${w.l.name} (${w.l.color_name})`)}">
         <div class="pics">${pic(picUrl(w.l.part_num, w.l.color_id) || picAnyColour(w.l.part_num))}${w.status === "bad" ? `→${pic(w.got.img, "got")}` : ""}</div>
@@ -5203,7 +5230,7 @@ function figCheckHtml(r) {
       ${fc.extra.map(e => `<div class="fc bad"><div class="pics">${pic(e.got.img, "got")}</div><b>Not ${esc(name)}'s</b><span>${esc(slotName(e.slot))}</span></div>`).join("")}</div>
     ${bad ? `<div>${fc.rows.filter(w => w.status === "bad").concat(fc.extra).map(w => { const own = partOwner(w.got.rb, w.got.colour);
         return `Its ${esc(slotName(w.l ? w.l.slot : w.slot).toLowerCase())} look${/s$/.test(slotName(w.l ? w.l.slot : w.slot)) ? "" : "s"} like <b>${esc(w.got.name)}</b>${own ? `, ${esc(own)}` : ""}.`; }).join(" ")}</div>
-      <div class="row"><button class="btn small primary" type="button" data-k="asparts">Add as separate parts instead</button><span class="muted">Then the Minifigs tab pairs them up with the right figures.</span></div>` : ""}
+      <div class="row"><button class="btn small ${fc.unsure ? "" : "primary"}" type="button" data-k="asparts">Add as separate parts instead</button><span class="muted">${fc.unsure ? "If it's a mix of parts. Otherwise add it as the figure." : "Then the Minifigs tab pairs them up with the right figures."}</span></div>` : ""}
   </div>`;
 }
 // Replace a mixed-up figure with its parts: the figure's own parts where they match (or couldn't be
