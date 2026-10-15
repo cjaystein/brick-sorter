@@ -61,8 +61,10 @@ header {
 .brand { font: 800 21px/1 var(--display); letter-spacing: -0.02em; display: flex; align-items: center; gap: 8px; margin-right: auto; }
 .brand svg { flex: none; }
 nav { display: flex; background: var(--sunken); border-radius: 999px; padding: 3px; }
+header nav { overflow-x: auto; scrollbar-width: none; max-width: 100%; }
+header nav::-webkit-scrollbar { display: none; }
 nav button {
-  border: 0; background: none; padding: 6px 14px; border-radius: 999px; cursor: pointer; color: var(--muted); font-weight: 700;
+  white-space: nowrap; flex: none; border: 0; background: none; padding: 6px 14px; border-radius: 999px; cursor: pointer; color: var(--muted); font-weight: 700;
 }
 nav button[aria-selected="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgb(0 0 0 / 0.12); }
 nav .count { font: 500 11px var(--mono); margin-left: 4px; color: var(--muted); }
@@ -239,7 +241,7 @@ td img.pic { width: 64px; height: 64px; background: #fff; border-radius: 6px; cu
   .setcard { grid-template-columns: 1fr; }
   nav button { padding: 6px 10px; }
   header nav { order: 3; flex: 1 1 100%; }
-  header nav button { flex: 1 1 auto; padding: 6px 4px; }
+  header nav button { flex: 1 0 auto; padding: 6px 9px; font-size: 14px; }
 }
 /* Sort: live camera, bins and one card per sorted item */
 .cam { position: relative; border-radius: 8px; overflow: hidden; background: #000; }
@@ -300,6 +302,20 @@ td img.pic { width: 64px; height: 64px; background: #fff; border-radius: 6px; cu
 .fpic img { width: 100%; height: 100%; object-fit: contain; }
 .fpart .chip { justify-self: start; }
 .figsets { display: grid; gap: 8px; margin-top: 6px; }
+.mflist { display: grid; gap: 10px; }
+#mf-shop-out:empty, #ms-shop-out:empty { display: none; }
+.mfcard { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px; padding: 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.mfpic { padding: 0; border: 0; background: #fff; border-radius: 8px; cursor: pointer; align-self: start; }
+.mfpic img { width: 96px; height: 96px; object-fit: contain; display: block; }
+.mfbody { display: grid; gap: 6px; min-width: 0; align-content: start; }
+.mfbody h3 { margin: 0; font-size: 16px; line-height: 1.25; }
+.mfparts { display: flex; flex-wrap: wrap; gap: 6px; }
+.mfparts > span { width: 46px; height: 46px; border: 2px solid color-mix(in srgb, var(--good) 60%, transparent); border-radius: 6px; background: #fff; display: grid; place-items: center; overflow: hidden; }
+.mfparts > span.miss { border: 2px dashed var(--bad); }
+.mfparts img { width: 40px; height: 40px; object-fit: contain; }
+.mfmiss { font-size: 13px; color: var(--bad); }
+.mfset { font-size: 13px; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
+@media (max-width: 560px) { .mfcard { grid-template-columns: 72px minmax(0, 1fr); } .mfpic img { width: 72px; height: 72px; } .mfparts > span { width: 40px; height: 40px; } .mfparts img { width: 34px; height: 34px; } }
 @media (max-width: 560px) { .fighead { grid-template-columns: 96px minmax(0, 1fr); } .fighead img { width: 96px; height: 96px; } .fparts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .mscard { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; display: grid; gap: 10px; min-width: 0; }
 .mshead { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 14px; align-items: center; }
@@ -336,6 +352,7 @@ th[aria-sort="descending"]::after { content: " ▼"; }
       <button role="tab" id="tab-scan" aria-selected="true" data-view="scan">Scan</button>
       <button role="tab" id="tab-sort" aria-selected="false" data-view="sort">Sort</button>
       <button role="tab" id="tab-mysets" aria-selected="false" data-view="mysets">My sets</button>
+      <button role="tab" id="tab-figs" aria-selected="false" data-view="figs">Minifigs</button>
       <button role="tab" id="tab-inv" aria-selected="false" data-view="inv">Inventory<span class="count" id="inv-count">0</span></button>
       <button role="tab" id="tab-set" aria-selected="false" data-view="set">Set check</button>
     </nav>
@@ -427,7 +444,12 @@ th[aria-sort="descending"]::after { content: " ▼"; }
           <span class="muted" style="font-size:13px">Raise to ignore crumbs and dust.</span>
         </label>
       </div>
-      <p class="muted" style="margin:0;font-size:14px">Tap a box to leave that item out. Tap again to bring it back.</p>
+      <div class="row" style="gap:8px 10px">
+        <span class="label">Tapping a box</span>
+        <nav aria-label="What tapping a box does" id="tool-nav"><button type="button" data-tool="off">Leaves it out</button><button type="button" data-tool="split">Splits it</button><button type="button" data-tool="draw">Draw a box</button></nav>
+        <button class="btn small" type="button" id="photo-undo" disabled>Undo</button>
+      </div>
+      <p class="muted" style="margin:0;font-size:14px" id="tool-hint"></p>
       <div class="photos" id="photos"></div>
       <div class="row">
         <span class="label">What's in these photos?</span>
@@ -554,6 +576,25 @@ th[aria-sort="descending"]::after { content: " ▼"; }
     <div><button class="btn" type="button" id="ms-shop" hidden>Shopping list for all unfinished sets</button></div>
     <div id="ms-shop-out"></div>
     <div id="ms-list" style="display:grid;gap:12px"></div>
+  </section>
+
+  <!-- MINIFIGURES -->
+  <section id="view-figs" class="view" hidden style="display:grid;gap:20px">
+    <div>
+      <h1>Minifigures</h1>
+      <p class="lede">The minifigures you can put together from the parts in your inventory, and the ones a part or two short. Tap a figure to see all its parts.</p>
+    </div>
+    <div class="stats" id="mf-stats"></div>
+    <div class="row fbar">
+      <input type="search" id="mf-q" placeholder="Filter by name or number" aria-label="Filter minifigures" style="flex:1 1 200px">
+      <select id="mf-show" aria-label="Show"><option value="all">Ready and nearly ready</option><option value="0">Ready to build</option><option value="1">1 part short</option><option value="2">2 parts short</option></select>
+      <select id="mf-order" aria-label="Order"><option value="close">Closest to complete</option><option value="rare">Rarest parts first</option><option value="name">Name</option><option value="value">Most valuable</option></select>
+      <label class="check"><input type="checkbox" id="mf-once" checked> Use each part once</label>
+      <span class="muted" id="mf-count" style="font-size:13px"></span>
+    </div>
+    <div class="row"><button class="btn" type="button" id="mf-shop" hidden>Buy the missing parts</button><button class="btn" type="button" id="mf-prices" hidden>Get BrickLink prices</button></div>
+    <div id="mf-shop-out"></div>
+    <div id="mf-list" class="mflist"></div>
   </section>
 
   <!-- INVENTORY -->
@@ -829,6 +870,7 @@ const Core = (() => {
     const r = Math.max(2, Math.round(0.006 * Math.max(w, h)));
     mask = morph(morph(mask, w, h, r, true), w, h, r, false);   // close
     mask = morph(morph(mask, w, h, 1, false), w, h, 1, true);   // open
+    if (opts.mask) return mask;
 
     // connected components, 8-connected
     const label = new Int32Array(n), stack = new Int32Array(n);
@@ -853,6 +895,74 @@ const Core = (() => {
     const band = Math.max(1, Math.round(0.08 * h));
     boxes.sort((a, b) => (Math.floor(a.y0 / band) - Math.floor(b.y0 / band)) || (a.x0 - b.x0));
     return boxes;
+  }
+
+  // ---- splitting a box that holds parts touching each other ------------
+  // mask: the photo's parts-vs-background mask (detectParts with {mask: true}); b: [x0, y0, x1, y1].
+  // Wears the outline away a pixel at a time until it falls into separate pieces, then grows each
+  // piece back over the outline, so touching parts become one box each; the pieces are tried again,
+  // so three parts in a row come apart at once. A piece has to be a fair share of the box (12%), so a
+  // single part doesn't lose a hand or a stud. Returns 2 or more [x0, y0, x1, y1] boxes, or [].
+  function splitParts(mask, w, h, b, info) {
+    const X0 = Math.max(0, Math.floor(b[0]) - 2), Y0 = Math.max(0, Math.floor(b[1]) - 2);
+    const X1 = Math.min(w, Math.ceil(b[2]) + 2), Y1 = Math.min(h, Math.ceil(b[3]) + 2);
+    const cw = X1 - X0, ch = Y1 - Y0, n = cw * ch;
+    if (cw < 6 || ch < 6) return [];
+    const m = new Uint8Array(n);
+    for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) if (mask[(Y0 + y) * w + X0 + x]) m[y * cw + x] = 1;
+    const count = mk => { let k = 0; for (let p = 0; p < n; p++) k += mk[p]; return k; };
+    function components(mk) {
+      const lab = new Int32Array(n), stack = new Int32Array(n), sizes = [0];
+      for (let s = 0; s < n; s++) {
+        if (!mk[s] || lab[s]) continue;
+        const id = sizes.length; let sp = 0, size = 0; stack[sp++] = s; lab[s] = id;
+        while (sp) { const p = stack[--sp], px = p % cw, py = (p / cw) | 0; size++;
+          for (let dy = -1; dy <= 1; dy++) { const yy = py + dy; if (yy < 0 || yy >= ch) continue;
+            for (let dx = -1; dx <= 1; dx++) { const xx = px + dx; if (xx < 0 || xx >= cw) continue; const q = yy * cw + xx; if (mk[q] && !lab[q]) { lab[q] = id; stack[sp++] = q; } } } }
+        sizes.push(size);
+      }
+      return { lab, sizes };
+    }
+    function once(mk) {                                // the pieces of one mask, or null if it won't come apart
+      const area = count(mk); if (area < 30) return null;
+      let x0 = cw, y0 = ch, x1 = 0, y1 = 0;
+      for (let p = 0; p < n; p++) if (mk[p]) { const x = p % cw, y = (p / cw) | 0; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+      const maxR = Math.max(2, Math.round(0.3 * Math.min(x1 - x0 + 1, y1 - y0 + 1)));
+      let er = mk;
+      for (let r = 1; r <= maxR; r++) {
+        er = morph(er, cw, ch, 1, false);
+        const { lab, sizes } = components(er), total = sizes.reduce((a, c) => a + c, 0);
+        if (!total) return null;
+        const keep = sizes.map((sz, id) => id && sz >= Math.max(4, 0.04 * total) ? id : 0).filter(Boolean);
+        if (keep.length < 2) continue;
+        const own = new Int32Array(n), queue = new Int32Array(n); let qh = 0, qt = 0;
+        keep.forEach((id, i) => { for (let p = 0; p < n; p++) if (lab[p] === id) { own[p] = i + 1; queue[qt++] = p; } });
+        while (qh < qt) { const p = queue[qh++], px = p % cw, py = (p / cw) | 0;
+          for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const xx = px + dx, yy = py + dy; if (xx < 0 || yy < 0 || xx >= cw || yy >= ch) continue;
+            const q = yy * cw + xx; if (mk[q] && !own[q]) { own[q] = own[p]; queue[qt++] = q; } } }
+        const pieces = keep.map((_, i) => { const pm = new Uint8Array(n); for (let p = 0; p < n; p++) if (own[p] === i + 1) pm[p] = 1; return pm; });
+        const sizesBack = pieces.map(count);
+        const big = pieces.filter((_, i) => sizesBack[i] >= 0.12 * area);
+        if (big.length < 2) return null;                  // only crumbs came off: one part
+        // Two parts touching meet at a join thinner than either part. Cutting one part (a torso through
+        // its arms, say) leaves pieces no thicker than the cut, so that's not a split.
+        const depth = pm => { let e = pm, d = 0; while (count(e) && d <= r + 1) { e = morph(e, cw, ch, 1, false); d++; } return d; };
+        const depths = big.map(depth);
+        if (info) info.tries = (info.tries || []).concat([{ r, area, pieces: sizesBack, depth: depths }]);
+        return depths.every(d => d > r) ? big : null;
+      }
+      return null;
+    }
+    const done = [];
+    (function rec(mk, depth) {
+      const parts = depth < 4 ? once(mk) : null;
+      if (!parts) { done.push(mk); return; }
+      for (const pm of parts) rec(pm, depth + 1);
+    })(m, 0);
+    if (done.length < 2) return [];
+    return done.map(mk => { let x0 = cw, y0 = ch, x1 = -1, y1 = -1;
+      for (let p = 0; p < n; p++) if (mk[p]) { const x = p % cw, y = (p / cw) | 0; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+      return [X0 + x0, Y0 + y0, X0 + x1 + 1, Y0 + y1 + 1]; });
   }
 
   // ---- CSV ----------------------------------------------------------
@@ -1197,7 +1307,7 @@ const Core = (() => {
     return opts;
   }
 
-  return { detectParts, parseCSV, toCSV, normColor, loosePart, buildColorLookup, compareSet,
+  return { detectParts, splitParts, parseCSV, toCSV, normColor, loosePart, buildColorLookup, compareSet,
            buildCatalogue, findEntry, chooseItem, chooseColour, colourOptions,
            nameSimilarity, compareFigs, matchFig, figChoices, rowType, FIG_LINK_AT, FIG_SURE_AT,
            letterbox, letterboxPixels, resizeBilinear, toTensor, decodeYolo, nms, iou, onnxImgsz, sortReading,
@@ -1240,7 +1350,7 @@ const blReady = (async () => {
   return blOn;
 })();
 // The version of this page; version.json next to it says the newest one published.
-const APP_VERSION = "2026-10-15 11:33";
+const APP_VERSION = "2026-10-15 12:28";
 async function checkForUpdate() {
   if (!/^https?:$/.test(location.protocol) || APP_VERSION.startsWith("__")) return;
   try {
@@ -1296,12 +1406,13 @@ function download(name, text, type = "text/csv") {
 
 // ---------- tabs ----------
 function show(view) {
-  for (const b of document.querySelectorAll("header nav button")) b.setAttribute("aria-selected", String(b.dataset.view === view));
+  for (const b of document.querySelectorAll("header nav button")) { b.setAttribute("aria-selected", String(b.dataset.view === view)); if (b.dataset.view === view) b.scrollIntoView({ block: "nearest", inline: "nearest" }); }
   for (const s of document.querySelectorAll(".view")) s.hidden = s.id !== "view-" + view;
   if (view === "inv") renderInventory();
   if (view === "set") { $("#key-needed").hidden = hasRb(); renderExpected(); }
   if (view === "sort") { renderSort(); ensureColours().catch(() => {}); } else if (typeof stopCam === "function") stopCam();
   if (view === "mysets") { renderMySets(); loadIndex(); }
+  if (view === "figs") renderMinifigs();
   window.scrollTo({ top: 0 });
 }
 for (const b of document.querySelectorAll("header nav button")) b.addEventListener("click", () => show(b.dataset.view));
@@ -1540,7 +1651,82 @@ async function detect(p) {
   } else {
     p.boxes = Core.detectParts(p.rgba, p.cw, p.ch, { sensitivity: +$("#sens").value, minSize: +$("#minsize").value / 10000 });
   }
-  p.off = new Set();
+  p.off = new Set(); p.done = new Set(); p.mask = null;
+  undoStack = undoStack.filter(u => u.p !== p); $("#photo-undo").disabled = !undoStack.length;
+}
+
+// ---------- fixing the boxes by hand: split merged parts, draw missed ones ----------
+let photoTool = "off", undoStack = [];
+const TOOL_HINT = {
+  off: "Tap a box to leave that item out. Tap again to bring it back.",
+  split: "Tap a box that holds two or more touching parts to split it into one box per part. If it won't split, draw a box around each part instead.",
+  draw: "Drag across the photo to draw a box around a part that was missed, or around each part in a box that wouldn't split.",
+};
+function setTool(t) {
+  photoTool = t;
+  for (const b of document.querySelectorAll("#tool-nav button")) b.setAttribute("aria-selected", String(b.dataset.tool === t));
+  $("#tool-hint").textContent = TOOL_HINT[t];
+  for (const cv of document.querySelectorAll("#photos canvas")) { cv.style.touchAction = t === "draw" ? "none" : ""; cv.style.cursor = t === "off" ? "" : "crosshair"; }
+}
+$("#tool-nav").addEventListener("click", e => { const b = e.target.closest("[data-tool]"); if (b) setTool(b.dataset.tool); });
+setTool("off");
+function pushUndo(p) {
+  undoStack.push({ p, boxes: p.boxes.slice(), off: new Set(p.off), done: new Set(p.done || []) });
+  if (undoStack.length > 30) undoStack.shift();
+  $("#photo-undo").disabled = false;
+}
+$("#photo-undo").addEventListener("click", () => {
+  const u = undoStack.pop(); if (!u) return;
+  Object.assign(u.p, { boxes: u.boxes, off: u.off, done: u.done });
+  $("#photo-undo").disabled = !undoStack.length;
+  renderPhoto(u.p); updateDetectSummary();
+});
+// A box with room around the part for identifying it, from the part's own outline (photo canvas pixels).
+function padBox(p, t) {
+  const pad = 0.08 * Math.max(t[2] - t[0], t[3] - t[1]) + 4;
+  return { x0: Math.max(0, t[0] - pad), y0: Math.max(0, t[1] - pad), x1: Math.min(p.cw, t[2] + pad), y1: Math.min(p.ch, t[3] + pad), tight: t.slice(), fixed: true };
+}
+function photoMask(p) {
+  if (!p.mask) p.mask = Core.detectParts(p.rgba, p.cw, p.ch, { sensitivity: +$("#sens").value || 1, mask: true });
+  return p.mask;
+}
+// Split box i of a photo into one box per part. The first piece keeps the box's number; the others go
+// on the end, so items already identified keep theirs. Returns the pieces' indices, or null.
+function splitPhotoBox(p, i) {
+  const b = p.boxes[i], t = b.tight || [b.x0, b.y0, b.x1, b.y1];
+  const parts = Core.splitParts(photoMask(p), p.cw, p.ch, t);
+  if (parts.length < 2) return null;
+  pushUndo(p);
+  const pieces = parts.map(q => padBox(p, q)), idx = [i];
+  p.boxes[i] = pieces[0];
+  for (const q of pieces.slice(1)) { idx.push(p.boxes.length); p.boxes.push(q); }
+  p.off.delete(i);
+  return idx;
+}
+async function splitAt(p, i) {
+  const r = review.find(x => x.photoId === p.id && x.n === i + 1 && !(x.blobs && x.blobs.length > 1));
+  const idx = splitPhotoBox(p, i);
+  if (!idx) {
+    toast("Couldn't find where to split that one. Draw a box around each part instead.");
+    setTool("draw"); return false;
+  }
+  if (!r && p.done) p.done.delete(i);                  // not in the list any more: the first piece is new too
+  renderPhoto(p); updateDetectSummary();
+  toast(`Split into ${idx.length} boxes`);
+  if (r) await identifyPieces(r, p, idx);                  // it was already identified: identify the pieces in its place
+  return true;
+}
+async function identifyPieces(r, p, idx) {
+  r.busy = true; renderReview();
+  const fresh = await Promise.all(idx.map(async j => {
+    const { blob, url } = await cropBlob(p, p.boxes[j]), base = { crop: url, blob, photo: p.name, photoId: p.id, n: j + 1, mode: r.mode };
+    try { return toReview({ ...base, res: await identifyOne(blob, r.mode) }); }
+    catch (e) { return toReview({ ...base, error: e.message }); }
+  }));
+  for (const j of idx) (p.done = p.done || new Set()).add(j);
+  const at = review.indexOf(r);
+  if (at >= 0) review.splice(at, 1, ...fresh); else review.push(...fresh);
+  renderReview(); updateDetectSummary();
 }
 let detectRun = 0, detectBusy = Promise.resolve();
 async function detectAll() {
@@ -1681,14 +1867,33 @@ function renderPhoto(p) {
     $("#photos").appendChild(wrap);
     const cv = wrap.querySelector("canvas");
     cv.width = p.cw; cv.height = p.ch;
+    cv.style.touchAction = photoTool === "draw" ? "none" : "";
+    const at = e => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) * p.cw / r.width, (e.clientY - r.top) * p.ch / r.height]; };
     cv.addEventListener("click", e => {
-      const r = cv.getBoundingClientRect(), x = (e.clientX - r.left) * p.cw / r.width, y = (e.clientY - r.top) * p.ch / r.height;
-      const i = p.boxes.findIndex(b => x >= b.x0 && x <= b.x1 && y >= b.y0 && y <= b.y1);
+      if (photoTool === "draw") return;
+      const [x, y] = at(e);
+      // the smallest box under the tap, so a box inside a bigger one can still be picked
+      let i = -1;
+      p.boxes.forEach((b, j) => { if (x >= b.x0 && x <= b.x1 && y >= b.y0 && y <= b.y1 && (i < 0 || (b.x1 - b.x0) * (b.y1 - b.y0) < (p.boxes[i].x1 - p.boxes[i].x0) * (p.boxes[i].y1 - p.boxes[i].y0))) i = j; });
       if (i < 0) return;
+      if (photoTool === "split") { splitAt(p, i); return; }
       p.off.has(i) ? p.off.delete(i) : p.off.add(i);
       renderPhoto(p); updateDetectSummary();
     });
-    wrap.querySelector("button").addEventListener("click", () => { photos = photos.filter(q => q !== p); wrap.remove(); updateDetectSummary(); });
+    cv.addEventListener("pointerdown", e => {
+      if (photoTool !== "draw") return;
+      e.preventDefault(); cv.setPointerCapture(e.pointerId);
+      const [x, y] = at(e); p.drag = [x, y, x, y];
+    });
+    cv.addEventListener("pointermove", e => { if (!p.drag) return; const [x, y] = at(e); p.drag[2] = x; p.drag[3] = y; renderPhoto(p); });
+    const endDrag = () => {
+      const d = p.drag; if (!d) return; p.drag = null;
+      const t = [Math.max(0, Math.min(d[0], d[2])), Math.max(0, Math.min(d[1], d[3])), Math.min(p.cw, Math.max(d[0], d[2])), Math.min(p.ch, Math.max(d[1], d[3]))];
+      if (t[2] - t[0] >= 8 && t[3] - t[1] >= 8) { pushUndo(p); p.boxes.push(padBox(p, t)); }
+      renderPhoto(p); updateDetectSummary();
+    };
+    cv.addEventListener("pointerup", endDrag); cv.addEventListener("pointercancel", endDrag);
+    wrap.querySelector("button").addEventListener("click", () => { photos = photos.filter(q => q !== p); undoStack = undoStack.filter(u => u.p !== p); $("#photo-undo").disabled = !undoStack.length; wrap.remove(); updateDetectSummary(); });
   }
   const cv = wrap.querySelector("canvas"), ctx = cv.getContext("2d");
   ctx.drawImage(p.img, 0, 0, p.cw, p.ch);
@@ -1705,6 +1910,11 @@ function renderPhoto(p) {
     ctx.fillStyle = off ? "rgba(140,140,140,.9)" : mark; ctx.fillRect(b.x0, b.y0, tw, fs + 6);
     ctx.fillStyle = "#111"; ctx.fillText(label, b.x0 + 4, b.y0 + 3);
   });
+  if (p.drag) {
+    const [a, b, c, d] = p.drag;
+    ctx.setLineDash([lw * 3, lw * 2]); ctx.strokeStyle = mark; ctx.lineWidth = lw;
+    ctx.strokeRect(Math.min(a, c), Math.min(b, d), Math.abs(c - a), Math.abs(d - b));
+  }
   ctx.setLineDash([]);
   const on = p.boxes.length - p.off.size;
   wrap.querySelector(".mono").textContent = p.name;
@@ -1730,9 +1940,10 @@ $("#mode-nav").addEventListener("click", e => {
 
 function updateDetectSummary() {
   const n = selectedCount(), [one, many] = WHAT[scanMode];
+  const fresh = photos.reduce((s, p) => s + p.boxes.filter((b, i) => !p.off.has(i) && !(p.done && p.done.has(i))).length, 0);
   $("#detect-panel").hidden = photos.length === 0;
   $("#detect-summary").textContent = `${n} item${n === 1 ? "" : "s"} in ${photos.length} photo${photos.length === 1 ? "" : "s"}`;
-  $("#identify").textContent = n ? `Identify ${n} ${n === 1 ? one : many}` : `Identify ${many}`;
+  $("#identify").textContent = !n ? `Identify ${many}` : fresh === n ? `Identify ${n} ${n === 1 ? one : many}` : fresh ? `Identify ${fresh} new ${fresh === 1 ? one : many}` : `Identify all ${n} again`;
   $("#identify").disabled = n === 0;
 }
 
@@ -1894,9 +2105,12 @@ function blFromItem(it) {
 }
 
 $("#identify").addEventListener("click", async () => {
-  const jobs = [], mode = scanMode;
-  for (const p of photos) p.boxes.forEach((b, i) => { if (!p.off.has(i)) jobs.push({ p, b, i }); });
+  let jobs = [];
+  const mode = scanMode;
+  for (const p of photos) p.boxes.forEach((b, i) => { if (!p.off.has(i) && !(p.done && p.done.has(i))) jobs.push({ p, b, i }); });
+  if (!jobs.length) for (const p of photos) p.boxes.forEach((b, i) => { if (!p.off.has(i)) jobs.push({ p, b, i }); });   // all done already: identify them all again
   if (!jobs.length) return;
+  for (const j of jobs) (j.p.done = j.p.done || new Set()).add(j.i);
   const btn = $("#identify"), bar = $("#identify-progress"), err = $("#identify-error");
   btn.disabled = true; bar.hidden = false; err.hidden = true;
   let done = 0, failed = 0, netFail = false;
@@ -1924,7 +2138,7 @@ $("#identify").addEventListener("click", async () => {
   const fresh = results.filter(Boolean).filter(r => !r.error || !netFail).map(toReview);
   review = review.concat(fresh);
   $("#identify-status").textContent = netFail ? "" : `Done${failed ? `, ${failed} failed` : ""}`;
-  renderReview();
+  renderReview(); updateDetectSummary();
   if (fresh.length) $("#review-panel").scrollIntoView({ behavior: "smooth", block: "start" });
 });
 
@@ -2027,6 +2241,7 @@ function renderReview() {
         ${kind === "part" ? `<label class="figpick"><input type="checkbox" data-k="figpart" ${r.figPart ? "checked" : ""}> Minifigure part</label>` : ""}
       </div>`;
     }
+    const canSplit = r.photoId != null && !(r.blobs && r.blobs.length > 1) && photos.some(p => p.id === r.photoId && p.boxes[r.n - 1]);
     return `<div class="item ${r.skip ? "skip" : ""} ${r.busy ? "busy" : ""}" data-id="${r.id}">
       <div class="pair">
         <figure><img src="${r.crop}" alt="Item ${r.n} from ${esc(r.photo)}"><figcaption>Yours${r.blobs && r.blobs.length > 1 ? `<span class="photo-count">×${r.blobs.length}</span>` : ""}</figcaption></figure>
@@ -2043,6 +2258,7 @@ function renderReview() {
           <input type="number" min="1" value="${r.qty}" data-k="qty" aria-label="Quantity" ${r.items.length ? "" : "disabled"}>
           <button class="btn" type="button" data-k="skip" ${r.items.length ? "" : "disabled"}>${r.skip ? "Include" : "Skip"}</button>
         </div>
+        ${canSplit ? `<button class="btn small" type="button" data-k="split" title="Split this box into one per part and identify each">More than one part?</button>` : ""}
       </div>
       ${cat && it ? whichSets(r) : ""}
       ${rareFlag(r)}
@@ -2074,7 +2290,15 @@ $("#review").addEventListener("change", e => {
   if (el.dataset.k === "item") r.figPart = r.kinds[r.item] === "part" && (r.figPart || looksLikeFigPart(r.items[r.item]));
   renderReview();
 });
-$("#review").addEventListener("click", e => {
+$("#review").addEventListener("click", async e => {
+  const sp = e.target.closest("[data-k=split]");
+  if (sp) {
+    const r = review.find(x => x.id === +sp.closest(".item").dataset.id), p = r && photos.find(q => q.id === r.photoId);
+    if (!p) return;
+    sp.disabled = true;
+    if (!(await splitAt(p, r.n - 1))) { sp.disabled = false; document.getElementById("photo-" + p.id).scrollIntoView({ behavior: "smooth", block: "center" }); }
+    return;
+  }
   const el = e.target.closest("[data-k=skip]"); if (!el) return;
   const r = review.find(x => x.id === +el.closest(".item").dataset.id); r.skip = !r.skip; renderReview();
 });
@@ -2329,6 +2553,7 @@ function saveInventory(push = true) {
   if (!store.set("inventory", inventory)) toast("Couldn't save in this browser. Export a CSV to keep your inventory.");
   $("#inv-count").textContent = inventory.reduce((s, r) => s + r.quantity, 0);
   if (!$("#view-inv").hidden) renderInventory();
+  if (!$("#view-figs").hidden) renderMinifigs();
   if (push) cloudSoon();
 }
 const invPriceArgs = r => { const kind = Core.rowType(r), no = r.bricklink_id || r.part_id; return /^fig-/i.test(no) ? { kind, no, blc: null, name: r.part_name, noPrice: true } : { kind, no, blc: kind === "part" ? blColour(r.color_name) : null }; };
@@ -4458,11 +4683,8 @@ const figKey = (part, cid) => `${String(part).toLowerCase()}|${cid}`;
 function ownedParts() {
   const m = new Map();
   const add = (row, where, ref) => {
-    const cid = colourId(row.color_name);
-    let rb = row.rb_part || rbOf(row.part_id) || rbOf(row.bricklink_id);
-    if (!rb && row.part_name && /^\d/.test(String(row.part_id))) { const g = bestGuess(row.part_id, row.part_name, cid); if (g.sure) rb = g.list[0].part; }
-    if (!rb || cid == null) return;
-    const k = figKey(rb, cid), e = m.get(k) || { qty: 0, where, refs: [] };
+    const x = rowRb(row); if (!x) return;
+    const k = figKey(x.rb, x.cid), e = m.get(k) || { qty: 0, where, refs: [] };
     e.qty += parseInt(row.quantity, 10) || 1; if (where === "scan") e.where = "scan"; if (ref) e.refs.push(ref);
     m.set(k, e);
   };
@@ -4473,6 +4695,13 @@ function ownedParts() {
     add({ part_id: it.id, part_name: it.name, bricklink_id: blFromItem(it), rb_part: (e && e.part_num) || "", color_name: c ? c.name : "", quantity: r.qty }, "scan", r.id);
   }
   return m;
+}
+// The Rebrickable part and colour of an inventory or scanned row, when they're known (null otherwise).
+function rowRb(row) {
+  const cid = colourId(row.color_name);
+  let rb = row.rb_part || rbOf(row.part_id) || rbOf(row.bricklink_id);
+  if (!rb && row.part_name && /^\d/.test(String(row.part_id))) { const g = bestGuess(row.part_id, row.part_name, cid); if (g.sure) rb = g.list[0].part; }
+  return rb && cid != null ? { rb, cid } : null;
 }
 function rankFigs(figs, owned) {
   return figs.map(f => {
@@ -4522,7 +4751,8 @@ async function openFigView(src) {
   await loadIndex(); await ensureColours().catch(() => {}); loadPics().then(() => figState && renderFig());
   if (!RBX) { $("#fig-body").innerHTML = `<div class="notice bad">This needs Rebrickable's database, which only loads on the website (or through serve.py).</div>`; return; }
   figState = { ...src, guess: null, sel: null, cands: [] };
-  if (src.info.kind === "fig") {                       // a whole figure: the closest names among all minifigures
+  if (src.fig != null) figState.cands = rankFigs([src.fig], ownedParts());   // a figure from the Minifigs tab
+  else if (src.info.kind === "fig") {                       // a whole figure: the closest names among all minifigures
     const short = src.info.name.split(" - ")[0];
     const ranked = RBX.h.figs.map((x, f) => ({ f, s: Math.max(Core.nameSimilarity(src.info.name, x[1]), Core.nameSimilarity(short, x[1]) * 0.95) }))
       .sort((a, b) => b.s - a.s).slice(0, 12).filter(x => x.s > 0);
@@ -4549,7 +4779,7 @@ const FIG_ORDER = ["Minifig Headwear", "Minifig Headwear Accessories", "Minifig 
 function renderFig() {
   const s = figState; if (!s) return;
   const owned = ownedParts(), info = s.info;
-  let html = `<div class="figsrc">${info.kind === "fig" ? `Your minifigure: <b>${esc(info.name)}</b>` : `Your part: <b>${esc(info.name)}</b>${info.colour ? ` in ${esc(info.colour)}` : ""} <span class="mono muted">${esc(info.id)}</span>`}</div>`;
+  let html = info.kind === "build" ? "" : `<div class="figsrc">${info.kind === "fig" ? `Your minifigure: <b>${esc(info.name)}</b>` : `Your part: <b>${esc(info.name)}</b>${info.colour ? ` in ${esc(info.colour)}` : ""} <span class="mono muted">${esc(info.id)}</span>`}</div>`;
   if (info.guessed && !s.guess) {
     const img = picUrl(info.rb, info.cid);
     html += `<div class="notice guessed">${img ? `<img src="${esc(img)}" alt="">` : ""}<span>Matched by its name to <b>${esc(RBX.h.part_names ? RBX.h.part_names[rbxPart(info.rb)] : info.rb)}</b>. Not your part?</span>
@@ -4571,7 +4801,7 @@ function renderFig() {
   lines.sort((a, b) => { const ia = FIG_ORDER.indexOf(partCat(a.part_num)), ib = FIG_ORDER.indexOf(partCat(b.part_num)); return (ia < 0 ? 9 : ia) - (ib < 0 ? 9 : ib); });
   const thisKey = info.kind === "part" ? figKey(info.rb, info.cid) : "";
   const missing = lines.filter(l => figKey(l.part_num, l.color_id) !== thisKey && !owned.has(figKey(l.part_num, l.color_id)));
-  const sets = (rbxMaps().figSets[f] || []).map(rbxSetInfo);
+  const own = invOwnedNum(), sets = (rbxMaps().figSets[f] || []).map(i => ({ ...rbxSetInfo(i), pct: setHavePct(i, own) })).sort((a, b) => b.pct - a.pct);
   html += `<div class="fighead">
       <img src="${esc(figImg(x[0]))}" alt="${esc(x[1])}" onerror="this.style.visibility='hidden'">
       <div style="display:grid;gap:6px;min-width:0">
@@ -4583,7 +4813,7 @@ function renderFig() {
     ${missing.length ? `<div class="row"><button class="btn primary" type="button" data-figshop>Buy the missing parts</button></div><div data-figshop-out></div>` : ""}
     ${sets.length ? `<div><div class="label">Comes in ${sets.length === 1 ? "this set" : `${sets.length} sets`}</div><div class="figsets">${sets.slice(0, 8).map(st => `<div class="setchip">
         ${st.set_img_url ? `<img src="${esc(st.set_img_url)}" alt="" loading="lazy">` : "<span></span>"}
-        <div class="t"><b>${esc(st.name)}</b><span class="mono muted">${esc(st.set_num)} · ${esc(st.year)}</span></div>
+        <div class="t"><b>${esc(st.name)}</b><span class="mono muted">${esc(st.set_num)} · ${esc(st.year)}</span><span class="muted" style="display:block;font-size:12px">${pctText(st.pct)}</span></div>
         <button class="btn small" type="button" data-figset="${esc(st.set_num)}" ${mySet(st.set_num) ? "disabled" : ""}>${mySet(st.set_num) ? "In My sets" : "Add to My sets"}</button></div>`).join("")}</div></div>` : ""}`;
   $("#fig-body").innerHTML = html;
 }
@@ -4625,6 +4855,179 @@ document.addEventListener("click", e => {
   const r = v.startsWith("c") ? (sortCards.find(c => "c" + c.id === v) || {}).r : review.find(x => x.id === +v);
   if (!r) return;
   const info = figInfoForRow(r); if (info) openFigView({ info, rowId: r.id });
+});
+
+// =================== MINIFIGS: the figures your parts can make ===================
+// Every minifigure that has one of your parts, checked against everything in your inventory. Ready
+// figures and ones a part or two short are listed; the rest are left out, and so are "short" figures
+// where all you have are common parts (a plain head fits thousands). With "Use each part once", the
+// figures with your rarest parts claim their parts first, so a pair of legs counts towards one figure.
+function invOwnedNum() {                               // part index * 65536 + colour -> pieces in your inventory
+  const m = new Map(); if (!RBX) return m;
+  for (const r of inventory) {
+    if (Core.rowType(r) !== "part") continue;
+    const x = rowRb(r); if (!x) continue;
+    const pi = rbxPart(x.rb); if (pi == null) continue;
+    const k = pi * 65536 + rbxCid(x.cid);
+    m.set(k, (m.get(k) || 0) + (parseInt(r.quantity, 10) || 0));
+  }
+  return m;
+}
+function setHavePct(s, own) {                          // share of a set's pieces (minifigures included) in your inventory
+  const { line_start: ls, line_part: lp, line_color: lc, line_qty: lq, fig_start: fs, fig_idx: fi, fig_qty: fq } = RBX.A, need = new Map();
+  const add = (o, mult) => { for (let i = ls[o]; i < ls[o + 1]; i++) { if (lq[i] & 32768) continue; const k = lp[i] * 65536 + lc[i]; need.set(k, (need.get(k) || 0) + (lq[i] & 32767) * mult); } };
+  add(s, 1);
+  for (let k = fs[s]; k < fs[s + 1]; k++) add(RBX.nSets + fi[k], fq[k]);
+  let t = 0, h = 0;
+  for (const [k, q] of need) { t += q; h += Math.min(q, own.get(k) || 0); }
+  return t ? h / t : 0;
+}
+const pctText = p => p >= 0.995 ? "you have every part" : `you have ${p > 0 && p < 0.01 ? "under 1" : Math.round(p * 100)}% of its parts`;
+const MF_SHORT = 2, MF_RARE = 25;                       // up to 2 pieces short; a part in 25 figures or fewer is "rare"
+function buildableFigs(own, once) {
+  const x = rbxMaps(), nS = x.nSets, { line_start: ls, line_part: lp, line_color: lc, line_qty: lq } = x.A;
+  const cands = new Set();
+  for (const k of own.keys()) for (const f of x.pcFig.get(k) || []) cands.add(f);
+  const list = [];
+  for (const f of cands) {
+    const o = nS + f, lines = [];
+    let total = 0, have = 0, score = 0, rare = false;
+    for (let i = ls[o]; i < ls[o + 1]; i++) {
+      if (lq[i] & 32768) continue;
+      const k = lp[i] * 65536 + lc[i], q = lq[i] & 32767, h = Math.min(q, own.get(k) || 0), n = (x.pcFig.get(k) || []).length || 1;
+      total += q; have += h; if (h) { score += 1 / n; if (n <= MF_RARE) rare = true; }
+      lines.push({ k, q, n });
+    }
+    const miss = total - have;
+    if (!have || miss > MF_SHORT || (miss && !rare)) continue;
+    list.push({ f, total, miss, score, lines });
+  }
+  list.sort((a, b) => a.miss - b.miss || b.score - a.score || a.f - b.f);
+  const pool = once ? new Map(own) : own, out = [];
+  for (const c of list) {
+    let miss = 0, rare = false;
+    const have = c.lines.map(l => { const h = Math.min(l.q, pool.get(l.k) || 0); miss += l.q - h; if (h && l.n <= MF_RARE) rare = true; return h; });
+    if (miss > MF_SHORT || miss === c.total || (miss && !rare)) continue;
+    if (once) c.lines.forEach((l, i) => { if (have[i]) pool.set(l.k, pool.get(l.k) - have[i]); });
+    out.push({ ...c, miss, have });
+  }
+  return out;
+}
+let mfState = null;                                     // {all, shown, own, at}
+async function renderMinifigs() {
+  const list = $("#mf-list");
+  if (!RBX) {
+    list.innerHTML = `<p class="muted">Loading Rebrickable's database…</p>`;
+    await loadIndex(); await ensureColours().catch(() => {});
+    if (!RBX) { list.innerHTML = `<div class="notice bad">This needs Rebrickable's database, which only loads on the website (or through serve.py).</div>`; return; }
+  }
+  if (!rbColors) await ensureColours().catch(() => {});
+  if (!PICS) loadPics().then(m => { if (m && !$("#view-figs").hidden) drawMinifigs(); });
+  const own = invOwnedNum();
+  mfState = { all: buildableFigs(own, $("#mf-once").checked), shown: 40, own, wholeFigs: inventory.filter(r => Core.rowType(r) === "fig").reduce((s, r) => s + r.quantity, 0) };
+  drawMinifigs();
+}
+function mfLine(c, i) {                                // one part of a listed figure, as a shopping/figure line
+  const k = c.lines[i].k, pi = Math.floor(k / 65536), cid = k % 65536 === 65535 ? -1 : k % 65536, part = RBX.h.parts[pi];
+  return { part_num: part, color_id: cid, color_name: colourName(cid), name: RBX.h.part_names ? RBX.h.part_names[pi] || "" : "", quantity: c.lines[i].q,
+    have: c.have[i], missing: c.lines[i].q - c.have[i], bl_ids: [blOf(part)], img: picUrl(part, cid) };
+}
+function mfValue(c) {                                  // part-out value from BrickLink prices already fetched (null if any is missing)
+  if (!blOn) return null;
+  let v = 0, cur = "";
+  for (let i = 0; i < c.lines.length; i++) {
+    const l = mfLine(c, i), blc = blColour(l.color_name); if (blc == null) return null;
+    const p = cachedPrice(priceKey("part", blOf(l.part_num), blc)), each = priceEach(p);
+    if (each == null) return null;
+    v += each * l.quantity; cur = p.currency || cur;
+  }
+  return { v, cur };
+}
+function mfFiltered() {
+  const s = mfState, show = $("#mf-show").value, q = $("#mf-q").value.trim().toLowerCase(), order = $("#mf-order").value;
+  let list = s.all.filter(c => show === "all" || c.miss === +show);
+  if (q) list = list.filter(c => { const x = RBX.h.figs[c.f]; return `${x[0]} ${x[1]}`.toLowerCase().includes(q); });
+  const name = c => RBX.h.figs[c.f][1];
+  if (order === "rare") list.sort((a, b) => b.score - a.score);
+  else if (order === "name") list.sort((a, b) => name(a).localeCompare(name(b)));
+  else if (order === "value") list.sort((a, b) => ((mfValue(b) || {}).v ?? -1) - ((mfValue(a) || {}).v ?? -1));
+  else list.sort((a, b) => a.miss - b.miss || b.score - a.score);
+  return list;
+}
+function drawMinifigs() {
+  const s = mfState; if (!s) return;
+  const n = m => s.all.filter(c => c.miss === m).length;
+  $("#mf-stats").innerHTML = `<div class="stat"><b>${n(0)}</b><span>ready to build</span></div><div class="stat"><b>${n(1)}</b><span>1 part short</span></div><div class="stat"><b>${n(2)}</b><span>2 parts short</span></div>${s.wholeFigs ? `<div class="stat"><b>${s.wholeFigs}</b><span>whole minifigures in your inventory</span></div>` : ""}`;
+  $("#mf-order").querySelector('[value="value"]').hidden = !blOn;
+  const list = mfFiltered(), shortOnes = list.filter(c => c.miss);
+  $("#mf-count").textContent = `${list.length} figure${list.length === 1 ? "" : "s"}`;
+  $("#mf-shop").hidden = !shortOnes.length;
+  $("#mf-shop").textContent = `Buy the missing parts (${shortOnes.length} figure${shortOnes.length === 1 ? "" : "s"})`;
+  $("#mf-prices").hidden = !blOn || !list.length;
+  if (!s.all.length) {
+    $("#mf-list").innerHTML = `<div class="panel empty"><strong>No minifigures yet</strong><span>${inventory.length ? "None of the parts in your inventory are minifigure parts Rebrickable knows, or each figure is still more than two parts short." : "Scan some minifigure parts and add them to your inventory."}</span><button class="btn" type="button" id="mf-go-scan">Scan parts</button></div>`;
+    $("#mf-go-scan").addEventListener("click", () => show("scan"));
+    return;
+  }
+  if (!list.length) { $("#mf-list").innerHTML = `<p class="muted">No figures match.</p>`; return; }
+  const setsCache = new Map();
+  const bestSet = f => {
+    const all = rbxMaps().figSets[f] || [];
+    if (!all.length) return null;
+    const ranked = all.map(i => ({ i, pct: setsCache.has(i) ? setsCache.get(i) : (setsCache.set(i, setHavePct(i, s.own)), setsCache.get(i)) })).sort((a, b) => b.pct - a.pct);
+    return { ...rbxSetInfo(ranked[0].i), pct: ranked[0].pct, more: all.length - 1 };
+  };
+  $("#mf-list").innerHTML = list.slice(0, s.shown).map(c => {
+    const x = RBX.h.figs[c.f], lines = c.lines.map((_, i) => mfLine(c, i));
+    lines.sort((a, b) => { const ia = FIG_ORDER.indexOf(partCat(a.part_num)), ib = FIG_ORDER.indexOf(partCat(b.part_num)); return (ia < 0 ? 9 : ia) - (ib < 0 ? 9 : ib); });
+    const miss = lines.filter(l => l.missing > 0), st = bestSet(c.f), val = mfValue(c);
+    const thumb = l => { const img = l.img || picAnyColour(l.part_num) || blImg({ part_num: blOf(l.part_num) }, blColour(l.color_name));
+      return `<span class="${l.missing ? "miss" : ""}" title="${esc(`${l.missing ? "Missing: " : ""}${l.name} (${l.color_name})${l.quantity > 1 ? ` ×${l.quantity}` : ""}`)}">${img ? `<img src="${esc(img)}" alt="" loading="lazy" onerror="this.remove()">` : ""}</span>`; };
+    return `<article class="mfcard">
+      <button class="mfpic" type="button" data-mf="${c.f}" aria-label="Show ${esc(x[1])}"><img src="${esc(figImg(x[0]))}" alt="" loading="lazy" onerror="this.style.visibility='hidden'"></button>
+      <div class="mfbody">
+        <div class="row" style="gap:6px 8px"><span class="chip ${c.miss ? "warn" : "ok"}">${c.miss ? `${c.miss} part${c.miss === 1 ? "" : "s"} short` : "Ready to build"}</span><span class="mono muted" style="font-size:12px">${esc(x[0])}</span>${val ? `<span class="price" title="Part-out value: the BrickLink prices of its parts added up">${esc(money(val.v, val.cur))}</span>` : ""}</div>
+        <h3>${esc(x[1])}</h3>
+        <div class="mfparts">${lines.map(thumb).join("")}</div>
+        ${miss.length ? `<div class="mfmiss">Missing: ${miss.map(l => `${esc(l.name || l.part_num)} <span class="muted">(${esc(l.color_name)}${l.missing > 1 ? ` ×${l.missing}` : ""})</span>`).join("; ")}</div>` : ""}
+        ${st ? `<div class="mfset"><span>Came in <b>${esc(st.name)}</b> <span class="mono muted">${esc(st.set_num)}</span>${st.more ? ` <span class="muted">and ${st.more} other set${st.more === 1 ? "" : "s"}</span>` : ""}: ${pctText(st.pct)}</span>
+          <button class="btn small" type="button" data-figset="${esc(st.set_num)}" ${mySet(st.set_num) ? "disabled" : ""}>${mySet(st.set_num) ? "In My sets" : "Add to My sets"}</button></div>` : ""}
+        <div><button class="btn small" type="button" data-mf="${c.f}">Show the figure</button></div>
+      </div></article>`;
+  }).join("") + (list.length > s.shown ? `<div class="row"><button class="btn" type="button" id="mf-more">Show ${Math.min(40, list.length - s.shown)} more (of ${list.length - s.shown})</button></div>` : "");
+}
+$("#mf-list").addEventListener("click", async e => {
+  if (e.target.closest("#mf-more")) { mfState.shown += 40; drawMinifigs(); return; }
+  const m = e.target.closest("[data-mf]");
+  if (m) { const x = RBX.h.figs[+m.dataset.mf]; openFigView({ info: { kind: "build", name: x[1], id: x[0] }, fig: +m.dataset.mf }); return; }
+  const b = e.target.closest("[data-figset]");
+  if (b) {
+    b.disabled = true;
+    try { await ensureColours(); ensureMySet(await setData(b.dataset.figset)); saveMySets(); b.textContent = "In My sets"; toast("Added to My sets"); }
+    catch (ex) { toast(ex.message); b.disabled = false; }
+  }
+});
+for (const id of ["#mf-q", "#mf-show", "#mf-order"]) $(id).addEventListener("input", () => { if (mfState) { mfState.shown = 40; drawMinifigs(); } });
+$("#mf-once").addEventListener("change", renderMinifigs);
+$("#mf-shop").addEventListener("click", () => {
+  const short = mfFiltered().filter(c => c.miss);
+  const results = short.map(c => ({ info: { set_num: RBX.h.figs[c.f][0], name: RBX.h.figs[c.f][1] }, lines: c.lines.map((_, i) => mfLine(c, i)), figs: [] }));
+  const out = $("#mf-shop-out");
+  out.innerHTML = shopBlock(results, "Missing minifigure parts", `Every part the ${short.length} figure${short.length === 1 ? " is" : "s are"} short, ready to buy on BrickLink.`);
+  applyTables(out); out.scrollIntoView({ behavior: "smooth", block: "start" });
+});
+$("#mf-prices").addEventListener("click", async () => {
+  const btn = $("#mf-prices"), todo = new Map();
+  for (const c of mfFiltered().slice(0, 200)) for (let i = 0; i < c.lines.length; i++) {
+    const l = mfLine(c, i), blc = blColour(l.color_name); if (blc == null) continue;
+    const no = blOf(l.part_num), key = priceKey("part", no, blc);
+    if (cachedPrice(key) === undefined) todo.set(key, { no, blc });
+  }
+  if (!todo.size) { toast("All prices are up to date"); drawMinifigs(); return; }
+  btn.disabled = true; let done = 0;
+  await Promise.all([...todo].map(([key, t]) => queuePrice(key, "part", t.no, t.blc).then(() => { btn.textContent = `Getting prices ${++done} of ${todo.size}…`; })));
+  btn.disabled = false; btn.textContent = "Get BrickLink prices";
+  drawMinifigs(); toast(`Got ${todo.size} price${todo.size === 1 ? "" : "s"}`);
 });
 
 // =================== ACCOUNT: sign in and sync with Supabase ===================

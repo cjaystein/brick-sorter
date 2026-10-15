@@ -30,6 +30,16 @@ Two versions that share the same inventory CSV format:
 - Shoot from directly above, in even light, without flash.
 - Clear/transparent parts are the hardest to detect; give them a dark background.
 
+**Parts that touch anyway:** under the photo, switch *Tapping a box* to
+**Splits it** and tap a box with two or more parts in it: it becomes one box
+per part (three in a row come apart in one tap). A single part is left alone.
+If a box won't split, or a part was missed, choose **Draw a box** and drag
+around each part. **Undo** steps back. After identifying, a row that's really
+two parts has a **More than one part?** button: it splits that box and
+identifies each part in its place. Fixed boxes go into the training photos
+too, so a detector you train learns from them. (Moving the Sensitivity or
+Smallest part sliders finds the boxes again from scratch.)
+
 ## Rebrickable API key (for set checks)
 
 Free. Sign in at rebrickable.com, go to Settings > API, and generate a key.
@@ -436,6 +446,27 @@ includes the translation when it's built with a Rebrickable API key (see
 below). Until then the app matches by name; when it's sure it says "Probably
 from", and otherwise shows the closest parts' pictures to tap the right one.
 Your pick is remembered.
+
+## Minifigs tab: what you can build
+
+The **Minifigs** tab lists the minifigures your inventory's parts can make:
+**Ready to build**, **1 part short** and **2 parts short**, each with its
+picture, its parts (missing ones outlined in red, and named) and the set it
+came in, with how much of that set you have and an **Add to My sets** button.
+Tap a figure to see all its parts.
+
+- **Use each part once** (on by default): one pair of legs counts towards one
+  figure. Figures with your rarest parts (printed torsos and heads) claim their
+  parts first. Untick it to see every figure each part could finish.
+- Figures that are short and only share common parts with yours (a plain
+  head, plain legs) are left out, since thousands of figures would match.
+- **Buy the missing parts** makes one BrickLink wanted list for all the
+  figures that are short.
+- With BrickLink prices on (through serve.py), **Get BrickLink prices** adds
+  each figure's part-out value and the list can be sorted by it.
+
+The figure window (Show the figure) also shows how much of each set the
+figure came in you already have.
 
 ## Minifigures
 
