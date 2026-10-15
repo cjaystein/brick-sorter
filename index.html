@@ -1361,7 +1361,7 @@ const blReady = (async () => {
   return blOn;
 })();
 // The version of this page; version.json next to it says the newest one published.
-const APP_VERSION = "2026-10-15 16:25";
+const APP_VERSION = "2026-10-15 17:36";
 async function checkForUpdate() {
   if (!/^https?:$/.test(location.protocol) || APP_VERSION.startsWith("__")) return;
   try {
@@ -4679,6 +4679,21 @@ function blMaps() {
   return BLMAP;
 }
 const blOf = part => blMaps().toBl.get(String(part).toLowerCase()) || part;
+// Rebrickable number for BrickLink numbers in a colour. BrickLink has one number for plain legs (970c00)
+// in every colour; Rebrickable has one per colour (970c11 is dark tan), so the colour picks it.
+function rbInColour(ids, cid) {
+  ids = ids.filter(Boolean);
+  if (cid != null && RBX) {
+    const m = blMaps(), all = [...new Set(ids.flatMap(id => m.toRbAll.get(String(id).toLowerCase()) || []))];
+    if (all.length > 1) {
+      const x = rbxMaps();
+      const hit = all.find(p => { const pi = rbxPart(p); return pi != null && (x.pcFig.has(pi * 65536 + rbxCid(cid)) || x.pc.has(pi * 65536 + rbxCid(cid))); });
+      if (hit) return hit;
+    }
+  }
+  for (const id of ids) { const r = rbOf(id); if (r) return r; }
+  return null;
+}
 // Rebrickable number for a scanned part, when it's known for sure (null otherwise).
 function rbOf(id) {
   if (!id || !RBX) return null;
@@ -4757,7 +4772,7 @@ function ownedParts() {
 // The Rebrickable part and colour of an inventory or scanned row, when they're known (null otherwise).
 function rowRb(row) {
   const cid = colourId(row.color_name);
-  let rb = row.rb_part || rbOf(row.part_id) || rbOf(row.bricklink_id);
+  let rb = row.rb_part || rbInColour([row.part_id, row.bricklink_id], cid);
   if (!rb && row.part_name && /^\d/.test(String(row.part_id))) { const g = bestGuess(row.part_id, row.part_name, cid); if (g.sure) rb = g.list[0].part; }
   return rb && cid != null ? { rb, cid } : null;
 }
@@ -4776,14 +4791,14 @@ function figInfoForRow(r) {
   if (kind !== "part" || !(r.figPart || looksLikeFigPart(it))) return null;
   const c = r.colorOpts[r.colorSel], cid = c ? colourId(c.name) : null, e = r.entries[r.item];
   const base = { kind: "part", id: it.id, name: it.name, cid, colour: c ? c.name : "" };
-  const rb = (e && e.part_num) || rbOf(it.id) || rbOf(blFromItem(it));
+  const rb = (e && e.part_num) || rbInColour([it.id, blFromItem(it)], cid);
   if (rb) return { ...base, rb, figs: figsWith(rb, cid) };
   const g = bestGuess(it.id, it.name, cid);
   return g.sure ? { ...base, rb: g.list[0].part, guessed: true, alts: g.list, figs: figsWith(g.list[0].part, cid) } : { ...base, rb: null, alts: g.list, figs: [] };
 }
 function infoFromRow(row) {                            // an inventory row, the same way as a scanned one
   const cid = colourId(row.color_name), base = { kind: "part", id: row.part_id, name: row.part_name || row.part_id, cid, colour: row.color_name || "" };
-  const rb = row.rb_part || rbOf(row.part_id) || rbOf(row.bricklink_id);
+  const rb = row.rb_part || rbInColour([row.part_id, row.bricklink_id], cid);
   if (rb) return { ...base, rb, figs: figsWith(rb, cid) };
   const g = bestGuess(row.part_id, row.part_name || "", cid);
   return g.sure ? { ...base, rb: g.list[0].part, guessed: true, alts: g.list, figs: figsWith(g.list[0].part, cid) } : { ...base, rb: null, alts: g.list, figs: [] };
@@ -4792,7 +4807,7 @@ function figLine(r, ref = r.id) {
   const info = figInfoForRow(r); if (!info) return "";
   if (info.kind === "fig") return `<div class="figline"><span>A whole minifigure.</span><button class="btn small" type="button" data-figview="${ref}">Show its parts</button></div>`;
   if (!info.rb) return `<div class="figline"><span>Which minifigure is this from?</span><button class="btn small" type="button" data-figview="${ref}">Find it</button></div>`;
-  if (!info.figs.length) return "";
+  if (!info.figs.length || info.figs.length > 25) return "";
   const top = rankFigs(info.figs, ownedParts())[0], fig = RBX.h.figs[top.f];
   return `<div class="figline">
     <img src="${esc(figImg(fig[0]))}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">
@@ -5160,7 +5175,8 @@ async function checkFigParts(r) {
     for (const it of ((st.res && st.res.items) || []).slice(0, 5)) {
       const slot = bgSlot(it.category); if (!slot || it.score < 0.45) continue;
       const bl = blFromItem(it);
-      (seen[slot] = seen[slot] || []).push({ id: it.id, bl, rb: rbOf(bl) || rbOf(it.id), rbs: rbAll(bl, it.id), name: it.name, img: it.img_url, score: it.score, colour: col && col.score >= 0.5 ? col.name : "", strip: si });
+      (seen[slot] = seen[slot] || []).push({ id: it.id, bl, rb: rbOf(bl) || rbOf(it.id), rbs: rbAll(bl, it.id), name: it.name, img: it.img_url, score: it.score,
+        colour: col && col.score >= 0.5 ? col.name : "", anyColour: col && col.score >= 0.3 ? col.name : "", strip: si });
     }
   });
   for (const k in seen) seen[k].sort((a, b) => b.score - a.score);
@@ -5172,7 +5188,10 @@ async function checkFigParts(r) {
       if (!got) return { l, status: l.slot ? "unk" : "skip" };
       const mine = l.part_num.toLowerCase(), hit = got.find(g => g.rbs.includes(mine));
       if (hit) {
-        if (!printed(l.part_num) && hit.colour && hit.score >= 0.6 && !sameColour(hit.colour, l.color_name)) return { l, status: "col", got: hit };
+        if (!printed(l.part_num)) {                    // plain legs, a plain head...: the colour is what tells them apart
+          if (!hit.anyColour) return { l, status: "unk", got: hit, why: "colour" };
+          if (!sameColour(hit.anyColour, l.color_name)) return { l, status: "col", got: { ...hit, colour: hit.anyColour } };
+        }
         ok++; return { l, status: "ok", got: hit };
       }
       if (got[0].score >= 0.6) { bad++; return { l, status: "bad", got: got[0] }; }
@@ -5251,7 +5270,7 @@ function figCheckHtml(r) {
   const pic = (u, cls = "") => u ? `<img class="${cls}" src="${esc(u)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">` : "";
   const shown = fc.rows.filter(w => w.status !== "skip");
   const checked = shown.filter(w => w.status !== "unk").length, bad = fc.bad + fc.extra.length + (fc.unsure ? 0 : fc.rows.filter(w => w.status === "col").length);
-  const label = { ok: "Matches", bad: fc.unsure ? "Looks different" : "Doesn't match", unk: "Not seen", col: "Check colour" };
+  const label = { ok: "Matches", bad: fc.unsure ? "Looks different" : "Doesn't match", unk: "Not seen", col: "Wrong colour" };
   return `<div class="figcheck ${bad && !fc.unsure ? "bad" : ""}">
     <div><b>${fc.unsure ? (checked ? `Couldn't work out exactly which figure this is. Closest: ${esc(name)}` : `Couldn't see its parts clearly enough to check them`)
       : bad ? `${bad === 1 ? "1 part doesn't" : `${bad} parts don't`} match ${esc(name)}` : checked ? `The parts match ${esc(name)}` : `Couldn't see its parts clearly enough to check them`}</b>
@@ -5259,7 +5278,7 @@ function figCheckHtml(r) {
     ${fc.by === "torso" && !fc.unsure ? `<div class="muted">Compared with the figure that has this torso and is closest to the name "${esc((r.items[r.item] || {}).name || "")}".</div>` : ""}
     <div class="fcparts">${shown.map(w => `<div class="fc ${w.status}" title="${esc(`${w.l.name} (${w.l.color_name})`)}">
         <div class="pics">${pic(picUrl(w.l.part_num, w.l.color_id) || picAnyColour(w.l.part_num))}${w.status === "bad" ? `→${pic(w.got.img, "got")}` : ""}</div>
-        <b>${esc(label[w.status])}</b><span>${esc(slotName(w.l.slot) || partCat(w.l.part_num).replace(/^Minifig /, ""))}</span></div>`).join("")}
+        <b>${esc(w.why === "colour" ? "Colour unclear" : label[w.status])}</b><span>${esc(slotName(w.l.slot) || partCat(w.l.part_num).replace(/^Minifig /, ""))}</span></div>`).join("")}
       ${fc.extra.map(e => `<div class="fc bad"><div class="pics">${pic(e.got.img, "got")}</div><b>Not ${esc(name)}'s</b><span>${esc(slotName(e.slot))}</span></div>`).join("")}</div>
     ${bad ? `<div>${fc.rows.filter(w => w.status === "col").map(w => `Its ${esc(slotName(w.l.slot).toLowerCase())} ${/s$/.test(slotName(w.l.slot)) ? "are" : "is"} ${esc(w.got.colour)}, not ${esc(w.l.color_name)}.`).join(" ")} ${fc.rows.filter(w => w.status === "bad").concat(fc.extra).map(w => { const own = partOwner(w.got.rb, w.got.colour);
         return `Its ${esc(slotName(w.l ? w.l.slot : w.slot).toLowerCase())} look${/s$/.test(slotName(w.l ? w.l.slot : w.slot)) ? "" : "s"} like <b>${esc(w.got.name)}</b>${own ? `, ${esc(own)}` : ""}.`; }).join(" ")}</div>
