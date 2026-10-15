@@ -487,7 +487,9 @@ head, neckwear, torso and legs with the parts that figure really has. A row
 whose parts don't match is flagged (*"Its legs look like ..., Krait's"*), and
 **Add as separate parts instead** turns it into its parts: the figure's own
 where they match, and what's really there where they don't. The Minifigs tab
-then pairs them with the right figures. This takes three more lookups per
+then pairs them with the right figures. A figure with a part that isn't its own
+(or a plain part in the wrong colour) is never added as the whole figure:
+**Add to inventory** waits for the checks and adds it as its parts. This takes three more lookups per
 figure, and works best on a sharp photo of the figure lying on its own.
 
 Set checks count each set's minifigures as whole figures, with their heads,

@@ -1361,7 +1361,7 @@ const blReady = (async () => {
   return blOn;
 })();
 // The version of this page; version.json next to it says the newest one published.
-const APP_VERSION = "2026-10-15 14:58";
+const APP_VERSION = "2026-10-15 16:20";
 async function checkForUpdate() {
   if (!/^https?:$/.test(location.protocol) || APP_VERSION.startsWith("__")) return;
   try {
@@ -2469,7 +2469,16 @@ async function mergeInto(target, r) {             // two rows are the same item:
 }
 
 $("#discard-review").addEventListener("click", () => { review = []; figCands = []; renderReview(); });
-$("#add-all").addEventListener("click", () => {
+$("#add-all").addEventListener("click", async () => {
+  const btn = $("#add-all");
+  if (figCheckPending()) {                            // don't let a figure in whole before its parts are checked
+    btn.disabled = true; btn.textContent = "Checking minifigures' parts…";
+    checkFigs();
+    for (let t = 0; t < 120 && figCheckPending(); t++) await new Promise(res => setTimeout(res, 500));
+    btn.textContent = "Add to inventory"; btn.disabled = false;
+  }
+  let split = 0;
+  for (const r of review.slice()) if (!r.skip && figCheckBad(r)) { asParts(r, true); split++; }
   let parts = 0, figs = 0;
   const added = [], add = (r, row) => { addToInventory(row); added.push({ r, row }); };
   for (const r of review) {
@@ -2493,7 +2502,7 @@ $("#add-all").addEventListener("click", () => {
   const bits = [];
   if (parts) bits.push(`${parts} piece${parts === 1 ? "" : "s"}`);
   if (figs) bits.push(`${figs} minifigure${figs === 1 ? "" : "s"}`);
-  toast(bits.length ? `Added ${bits.join(" and ")} to inventory` : "Nothing added");
+  toast(bits.length ? `Added ${bits.join(" and ")} to inventory${split ? `. ${split} minifigure${split === 1 ? " had" : "s had"} parts that don't belong, so ${split === 1 ? "it went" : "they went"} in as separate parts` : ""}` : "Nothing added");
 });
 
 // =================== FILTERING AND SORTING TABLES ===================
@@ -5211,7 +5220,9 @@ function partOwner(rb, colour) {
   return `from ${RBX.h.figs[figs[0]][1]}${figs.length > 1 ? ` (or ${figs.length - 1} other figure${figs.length === 2 ? "" : "s"})` : ""}`;
 }
 const fcKey = r => `${(r.items[r.item] || {}).id}|${r.figSel}|${r.rbFig || ""}`;
-const figCheckBad = r => r.kinds && r.kinds[r.item] === "fig" && r.fc && r.fcKey === fcKey(r) && !r.fc.unsure && (r.fc.bad > 0 || (r.fc.extra && r.fc.extra.length > 0));
+const figCheckBad = r => r.kinds && r.kinds[r.item] === "fig" && r.fc && r.fcKey === fcKey(r) && r.fc.f != null && !r.fc.unsure
+  && (r.fc.bad > 0 || (r.fc.extra && r.fc.extra.length > 0) || r.fc.rows.some(w => w.status === "col"));
+const figCheckPending = () => figCheckOn() && review.some(x => x.kinds[x.item] === "fig" && !x.skip && !x.error && x.blobs && x.blobs.length && x.fcKey !== fcKey(x));
 let figCheckBusy = false;
 async function checkFigs() {
   if (figCheckBusy || !figCheckOn()) return;
@@ -5239,7 +5250,7 @@ function figCheckHtml(r) {
   const x = RBX.h.figs[fc.f], name = x[1];
   const pic = (u, cls = "") => u ? `<img class="${cls}" src="${esc(u)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">` : "";
   const shown = fc.rows.filter(w => w.status !== "skip");
-  const checked = shown.filter(w => w.status !== "unk").length, bad = fc.bad + fc.extra.length;
+  const checked = shown.filter(w => w.status !== "unk").length, bad = fc.bad + fc.extra.length + (fc.unsure ? 0 : fc.rows.filter(w => w.status === "col").length);
   const label = { ok: "Matches", bad: fc.unsure ? "Looks different" : "Doesn't match", unk: "Not seen", col: "Check colour" };
   return `<div class="figcheck ${bad && !fc.unsure ? "bad" : ""}">
     <div><b>${fc.unsure ? (checked ? `Couldn't work out exactly which figure this is. Closest: ${esc(name)}` : `Couldn't see its parts clearly enough to check them`)
@@ -5250,14 +5261,15 @@ function figCheckHtml(r) {
         <div class="pics">${pic(picUrl(w.l.part_num, w.l.color_id) || picAnyColour(w.l.part_num))}${w.status === "bad" ? `→${pic(w.got.img, "got")}` : ""}</div>
         <b>${esc(label[w.status])}</b><span>${esc(slotName(w.l.slot) || partCat(w.l.part_num).replace(/^Minifig /, ""))}</span></div>`).join("")}
       ${fc.extra.map(e => `<div class="fc bad"><div class="pics">${pic(e.got.img, "got")}</div><b>Not ${esc(name)}'s</b><span>${esc(slotName(e.slot))}</span></div>`).join("")}</div>
-    ${bad ? `<div>${fc.rows.filter(w => w.status === "bad").concat(fc.extra).map(w => { const own = partOwner(w.got.rb, w.got.colour);
+    ${bad ? `<div>${fc.rows.filter(w => w.status === "col").map(w => `Its ${esc(slotName(w.l.slot).toLowerCase())} ${/s$/.test(slotName(w.l.slot)) ? "are" : "is"} ${esc(w.got.colour)}, not ${esc(w.l.color_name)}.`).join(" ")} ${fc.rows.filter(w => w.status === "bad").concat(fc.extra).map(w => { const own = partOwner(w.got.rb, w.got.colour);
         return `Its ${esc(slotName(w.l ? w.l.slot : w.slot).toLowerCase())} look${/s$/.test(slotName(w.l ? w.l.slot : w.slot)) ? "" : "s"} like <b>${esc(w.got.name)}</b>${own ? `, ${esc(own)}` : ""}.`; }).join(" ")}</div>
-      <div class="row"><button class="btn small ${fc.unsure ? "" : "primary"}" type="button" data-k="asparts">Add as separate parts instead</button><span class="muted">${fc.unsure ? "If it's a mix of parts. Otherwise add it as the figure." : "Then the Minifigs tab pairs them up with the right figures."}</span></div>` : ""}
+      ${fc.unsure ? `<div class="row"><button class="btn small" type="button" data-k="asparts">Add as separate parts instead</button><span class="muted">If it's a mix of parts. Otherwise add it as the figure.</span></div>`
+        : `<div class="row"><button class="btn small" type="button" data-k="asparts">Show them as separate parts now</button><span class="muted">It won't go in as a whole ${esc(name)}: <b>Add to inventory</b> adds its parts one by one, and the Minifigs tab pairs them up with the right figures.</span></div>`}` : ""}
   </div>`;
 }
 // Replace a mixed-up figure with its parts: the figure's own parts where they match (or couldn't be
 // seen), and what the photo actually shows where they don't. Each becomes a normal row to check.
-function asParts(r) {
+function asParts(r, quiet) {
   const fc = r.fc; if (!fc || fc.f == null) return;
   const mk = (id, name, colour, img, strip, rb) => {
     const st = strip != null && r.fcStrips ? r.fcStrips[strip] : null;
@@ -5275,8 +5287,8 @@ function asParts(r) {
   for (const e of fc.extra) rows.push(mk(e.got.bl, e.got.name, e.got.colour, e.got.img, e.got.strip, e.got.rb));
   const at = review.indexOf(r);
   if (at >= 0) review.splice(at, 1, ...rows);
-  renderReview();
-  toast(`${RBX.h.figs[fc.f][1]} is now ${rows.length} separate parts. Check them and add them`);
+  if (!quiet) { renderReview(); toast(`${RBX.h.figs[fc.f][1]} is now ${rows.length} separate parts. Check them and add them`); }
+  return rows.length;
 }
 
 // =================== ACCOUNT: sign in and sync with Supabase ===================
