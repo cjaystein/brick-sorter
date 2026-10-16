@@ -474,6 +474,11 @@ remembers its place (synced, and in the CSV's location column). On a Minifigs
 card, in the figure window and in the Inventory, tap the place or **Find its
 parts**: your own photo opens with those parts outlined and numbered.
 
+**Found it by eye?** Every missing part (on Minifigs cards and in the figure
+window) has **I've got this one**: it adds that exact part, in that colour, to
+your inventory, placed "With <figure>", no photo needed. **Undo: not found**
+takes it back out.
+
 **I built it** (on Ready to build cards, tap twice): one of each of the
 figure's parts leaves the inventory and the figure goes in whole.
 

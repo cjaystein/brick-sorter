@@ -334,7 +334,9 @@ td img.pic { width: 64px; height: 64px; background: #fff; border-radius: 6px; cu
 .mfparts > span { width: 46px; height: 46px; border: 2px solid color-mix(in srgb, var(--good) 60%, transparent); border-radius: 6px; background: #fff; display: grid; place-items: center; overflow: hidden; }
 .mfparts > span.miss { border: 2px dashed var(--bad); }
 .mfparts img { width: 40px; height: 40px; object-fit: contain; }
-.mfmiss { font-size: 13px; color: var(--bad); }
+.mfmiss { font-size: 13px; color: var(--bad); display: grid; gap: 6px; }
+.mfmissrow { display: flex; gap: 8px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.mfmissrow > span { flex: 1 1 160px; min-width: 0; }
 .mfset { font-size: 13px; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
 @media (max-width: 560px) { .mfcard { grid-template-columns: 72px minmax(0, 1fr); } .mfpic img { width: 72px; height: 72px; } .mfparts > span { width: 40px; height: 40px; } .mfparts img { width: 34px; height: 34px; } }
 @media (max-width: 560px) { .fighead { grid-template-columns: 96px minmax(0, 1fr); } .fighead img { width: 96px; height: 96px; } .fparts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
@@ -1380,7 +1382,7 @@ const blReady = (async () => {
   return blOn;
 })();
 // The version of this page; version.json next to it says the newest one published.
-const APP_VERSION = "2026-10-15 18:04";
+const APP_VERSION = "2026-10-16 10:55";
 async function checkForUpdate() {
   if (!/^https?:$/.test(location.protocol) || APP_VERSION.startsWith("__")) return;
   try {
@@ -4903,8 +4905,39 @@ function partCard(l, owned, thisKey) {
     <span class="row" style="gap:6px;flex-wrap:nowrap;font-size:13px">${swatch(l.color_name)}${esc(l.color_name)}</span>
     ${locs.length ? `<button type="button" class="linkish loc" data-find="p${esc(l.part_num)}|${l.color_id}" title="Show where it is">${esc([...new Set(locs.map(x => x.l))].join(", "))}</button>` : ""}
     <span class="links" style="font-size:12px">${ext(blUrl("part", bl, blc), "BrickLink", `Open ${bl} on BrickLink in this colour`)} ${ext(`https://rebrickable.com/parts/${encodeURIComponent(l.part_num)}/`, "Rebrickable", "Open on Rebrickable")}</span>
+    ${status[0] === "miss" ? gotBtn(l, l.quantity, partCard.fig) : handGot.has(k) ? `<button class="btn small" type="button" data-ungot="${esc(k)}">Undo: not found</button>` : ""}
   </div>`;
 }
+// A missing part you've found by eye: one tap adds it (that exact part, in that colour), no photo needed.
+const handGot = new Map();                            // part|colour -> pieces added by hand while the page is open
+function gotBtn(l, q, figName) {
+  return `<button class="btn small primary" type="button" data-got="${esc(JSON.stringify({ p: l.part_num, c: l.color_id, q, f: figName || "" }))}" title="You've found it: add it to your inventory">I've got this one</button>`;
+}
+function gotPart({ p, c, q, f }) {
+  const pi = rbxPart(p), name = (pi != null && RBX.h.part_names && RBX.h.part_names[pi]) || p, colour = colourName(c), bl = blOf(p);
+  addToInventory({ type: "part", part_id: bl, part_name: name, color_name: colour, color_id: c, quantity: q, bricklink_id: bl, rb_part: p,
+    img_url: picUrl(p, c), locs: [{ l: f ? `With ${f}` : "Found by hand", s: "", b: -1, q }] });
+  const k = figKey(p, c); handGot.set(k, (handGot.get(k) || 0) + q);
+  saveInventory();
+  if (figState) renderFig();
+  toast(`Added ${name} (${colour}) to your inventory`);
+}
+function ungotPart(k) {
+  let q = handGot.get(k) || 0; if (!q) return;
+  for (const r of inventory) {
+    if (q <= 0) break;
+    const x = Core.rowType(r) === "part" && rowRb(r); if (!x || figKey(x.rb, x.cid) !== k) continue;
+    const t = Math.min(q, r.quantity); r.quantity -= t; q -= t; takeLocs(r, t);
+  }
+  inventory = inventory.filter(r => r.quantity > 0); handGot.delete(k);
+  saveInventory(); if (figState) renderFig();
+  toast("Taken back out");
+}
+document.addEventListener("click", e => {
+  const g = e.target.closest("[data-got]");
+  if (g) { try { gotPart(JSON.parse(g.dataset.got)); } catch (ex) { toast(ex.message); } return; }
+  const u = e.target.closest("[data-ungot]"); if (u) ungotPart(u.dataset.ungot);
+});
 const FIG_ORDER = ["Minifig Headwear", "Minifig Headwear Accessories", "Minifig Heads", "Minifig Neckwear", "Minifig Upper Body", "Minifig Hipwear", "Minifig Lower Body", "Minifig Accessories", "Minifig Shields, Weapons, & Tools"];
 function renderFig() {
   const s = figState; if (!s) return;
@@ -4939,7 +4972,7 @@ function renderFig() {
         <span>${missing.length ? `<b>${missing.length} part${missing.length === 1 ? "" : "s"} missing</b> of ${lines.length}` : `<b>You have every part</b> (${lines.length})`}</span>
         <span class="links">${ext(`https://rebrickable.com/minifigs/${encodeURIComponent(x[0])}/`, "Rebrickable", "This minifigure on Rebrickable")} ${ext(`https://www.bricklink.com/v2/search.page?q=${encodeURIComponent(x[1])}#T=M`, "BrickLink", "Find this minifigure on BrickLink")}</span>
       </div></div>
-    <div class="fparts">${(partCard.where = locsByKey(), lines.map(l => partCard(l, owned, thisKey)).join(""))}</div>
+    <div class="fparts">${(partCard.where = locsByKey(), partCard.fig = x[1], lines.map(l => partCard(l, owned, thisKey)).join(""))}</div>
     ${lines.some(l => { const pi = rbxPart(l.part_num); return pi != null && partCard.where.has(pi * 65536 + rbxCid(l.color_id)); }) ? `<div class="row"><button class="btn small" type="button" data-find="f${f}">Find its parts</button></div>` : ""}
     ${missing.length ? `<div class="row"><button class="btn primary" type="button" data-figshop>Buy the missing parts</button></div><div data-figshop-out></div>` : ""}
     ${sets.length ? `<div><div class="label">Comes in ${sets.length === 1 ? "this set" : `${sets.length} sets`}</div><div class="figsets">${sets.slice(0, 8).map(st => `<div class="setchip">
@@ -5121,7 +5154,7 @@ function drawMinifigs() {
         <div class="row" style="gap:6px 8px"><span class="chip ${c.miss ? "warn" : "ok"}">${c.miss ? `${c.miss} part${c.miss === 1 ? "" : "s"} short` : "Ready to build"}</span><span class="mono muted" style="font-size:12px">${esc(x[0])}</span>${val ? `<span class="price" title="Part-out value: the BrickLink prices of its parts added up">${esc(money(val.v, val.cur))}</span>` : ""}</div>
         <h3>${esc(x[1])}</h3>
         <div class="mfparts">${lines.map(thumb).join("")}</div>
-        ${miss.length ? `<div class="mfmiss">Missing: ${miss.map(l => `${esc(l.name || l.part_num)} <span class="muted">(${esc(l.color_name)}${l.missing > 1 ? ` ×${l.missing}` : ""})</span>`).join("; ")}</div>` : ""}
+        ${miss.length ? `<div class="mfmiss">Missing:${miss.map(l => `<div class="mfmissrow"><span>${esc(l.name || l.part_num)} <span class="muted">(${esc(l.color_name)}${l.missing > 1 ? ` ×${l.missing}` : ""})</span></span>${gotBtn(l, l.missing, x[1])}</div>`).join("")}</div>` : ""}
         ${st ? `<div class="mfset"><span>Came in <b>${esc(st.name)}</b> <span class="mono muted">${esc(st.set_num)}</span>${st.more ? ` <span class="muted">and ${st.more} other set${st.more === 1 ? "" : "s"}</span>` : ""}: ${pctText(st.pct)}</span>
           <button class="btn small" type="button" data-figset="${esc(st.set_num)}" ${mySet(st.set_num) ? "disabled" : ""}>${mySet(st.set_num) ? "In My sets" : "Add to My sets"}</button></div>` : ""}
         ${(() => { const here = [...new Set(c.lines.flatMap(l => (where.get(l.k) || []).map(y => y.l)).filter(Boolean))];
