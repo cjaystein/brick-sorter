@@ -34,8 +34,10 @@ import numpy as np
 import onnxruntime as ort
 from PIL import Image, ImageEnhance, ImageFilter
 
-MODELS = {"heads-model.onnx": "https://huggingface.co/Xenova/dinov2-small/resolve/main/onnx/model_quantized.onnx",
-          "heads-model-full.onnx": "https://huggingface.co/Xenova/dinov2-small/resolve/main/onnx/model.onnx"}
+# Tested 17 Oct 2026 on 600 heads made worse: the small (quantised) model with several views per head did
+# best (42% right first, 56% in the top 5); the full model (88 MB) did no better. Brickognize did better still
+# on the same pictures (76% / 79%), so the app uses this only as an opt-in second opinion.
+MODELS = {"heads-model.onnx": "https://huggingface.co/Xenova/dinov2-small/resolve/main/onnx/model_quantized.onnx"}
 BRICKOGNIZE = "https://api.brickognize.com/predict/parts/?top_k_items=10"
 PICS = "https://cdn.rebrickable.com/media/parts/"
 SIZE, MARGIN = 224, 0.08

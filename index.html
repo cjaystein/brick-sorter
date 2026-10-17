@@ -284,6 +284,12 @@ td img.pic { width: 64px; height: 64px; background: #fff; border-radius: 6px; cu
 .figline { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; padding: 6px 8px; border-radius: 8px; font-size: 13px; background: color-mix(in srgb, var(--mark) 14%, var(--surface)); }
 .figline img { width: 36px; height: 36px; object-fit: contain; background: #fff; border-radius: 6px; }
 .figline span { flex: 1 1 160px; min-width: 0; }
+.headmatch { grid-column: 1 / -1; display: grid; gap: 6px; padding: 8px; border-radius: 8px; border: 1px solid var(--line); font-size: 13px; }
+.hmopts { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
+.hmopt { flex: none; width: 92px; display: grid; gap: 2px; justify-items: center; text-align: center; padding: 4px; border: 2px solid var(--line); border-radius: 8px; background: var(--surface); color: inherit; font: inherit; font-size: 11px; cursor: pointer; }
+.hmopt.on { border-color: var(--good); }
+.hmopt img { width: 64px; height: 64px; object-fit: contain; background: #fff; border-radius: 6px; }
+.hmopt span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .figcheck { grid-column: 1 / -1; display: grid; gap: 8px; padding: 8px; border-radius: 8px; font-size: 13px; border: 1px solid var(--line); }
 .figcheck.bad { border-color: var(--bad); background: color-mix(in srgb, var(--bad) 6%, var(--surface)); }
 .fcparts { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -480,6 +486,7 @@ th[aria-sort="descending"]::after { content: " ▼"; }
       </div>
       <p class="muted" style="margin:0;font-size:14px" id="mode-hint"></p>
       <label class="check" id="fig-check-wrap"><input type="checkbox" id="fig-check"> Check each minifigure's parts (hat, head, torso, legs) against the figure it's named as</label>
+      <label class="check"><input type="checkbox" id="head-matcher"> Head matcher (experimental): also compare each loose head with every head picture. A second opinion; it downloads 25 MB once.</label>
       <label class="loc-field"><span class="label">Where will these go?</span>
         <input type="text" id="scan-loc" list="scan-locs" placeholder="e.g. Torsos box 1, or Tray 3" autocomplete="off">
         <span class="muted" style="font-size:13px">Name the tray, bag or box you'll keep these parts in. Later the app shows you where each part is, on this photo.</span></label>
@@ -1383,9 +1390,9 @@ const $ = s => document.querySelector(s);
 // When the page is opened through the local helper (serve.py), calls go through
 // it, because browsers block some of these sites from calling them directly.
 let BRICKOGNIZE = "https://api.brickognize.com";
-const ENDPOINT = { parts: "/predict/parts/?predict_color=true&top_k_items=5&top_k_colors=4",
+const ENDPOINT = { parts: "/predict/parts/?predict_color=true&top_k_items=10&top_k_colors=4",
                    figs: "/predict/figs/?top_k_items=5",
-                   mixed: "/predict/?predict_color=true&top_k_items=5&top_k_colors=4" };
+                   mixed: "/predict/?predict_color=true&top_k_items=10&top_k_colors=4" };
 const WHAT = { parts: ["part", "parts"], figs: ["minifigure", "minifigures"], mixed: ["item", "items"] };
 const RB_DIRECT = "https://rebrickable.com/api/v3/lego";
 let RB = RB_DIRECT, viaHelper = false;
@@ -1408,7 +1415,7 @@ const blReady = (async () => {
   return blOn;
 })();
 // The version of this page; version.json next to it says the newest one published.
-const APP_VERSION = "2026-10-17 15:12";
+const APP_VERSION = "2026-10-17 16:59";
 async function checkForUpdate() {
   if (!/^https?:$/.test(location.protocol) || APP_VERSION.startsWith("__")) return;
   try {
@@ -2350,6 +2357,8 @@ function renderReview() {
       ${rareFlag(r)}
       ${figLine(r)}
       ${figCheckHtml(r)}
+      ${altsHtml(r)}
+      ${headMatchHtml(r)}
       ${r.notes.length ? `<div class="note">${r.notes.map(esc).join(". ")}.</div>` : ""}
       ${r.blobs && r.blobs.length ? `<details class="more"><summary>More photos of this item</summary>
         <div class="row">
@@ -2364,6 +2373,7 @@ function renderReview() {
   if (review.length && !rbColors && !coloursTried && store.get("rbKey", "")) { coloursTried = true; ensureColours().then(renderReview, () => {}); }
   checkRarity();
   checkFigs();
+  checkHeads();
 }
 $("#review").addEventListener("change", e => {
   const el = e.target, row = el.closest(".item"); if (!row) return;
@@ -2379,6 +2389,10 @@ $("#review").addEventListener("change", e => {
   renderReview();
 });
 $("#review").addEventListener("click", async e => {
+  const al = e.target.closest("[data-alt]");
+  if (al) { const r = review.find(x => x.id === +al.closest(".item").dataset.id); if (r) { r.item = +al.dataset.alt; r.touched = true; applyChoice(r, true); r.figPart = true; renderReview(); } return; }
+  const hm = e.target.closest("[data-hm]");
+  if (hm) { const r = review.find(x => x.id === +hm.closest(".item").dataset.id); if (r && r.hm && r.hm.list) pickHead(r, +hm.dataset.hm); return; }
   if (e.target.closest("[data-k=asparts]")) { const r = review.find(x => x.id === +e.target.closest(".item").dataset.id); if (r) asParts(r); return; }
   const sp = e.target.closest("[data-k=split]");
   if (sp) {
@@ -5450,6 +5464,171 @@ function asParts(r, quiet) {
   return rows.length;
 }
 
+// =================== HEAD MATCHER ===================
+// Brickognize finds heads hard: they're small, curved and many faces differ only slightly. The head
+// matcher compares a photo of a head only with heads: a general image model (DINOv2 small) turns a
+// picture into a "fingerprint", and heads-index.bin.gz holds the fingerprint of every head picture on
+// Rebrickable (built by build_heads.py, which prepares pictures exactly like headInput below).
+const HEADS = { session: null, V: null, heads: null, dim: 0, prep: null, loading: null };
+const halfToFloat = h => { const s = h >> 15, e = (h >> 10) & 31, f = h & 1023;
+  const v = e === 0 ? f * 2 ** -24 : e === 31 ? (f ? NaN : Infinity) : (1 + f / 1024) * 2 ** (e - 15); return s ? -v : v; };
+function loadHeads() {
+  if (HEADS.loading) return HEADS.loading;
+  HEADS.loading = (async () => {
+    if (!/^https?:$/.test(location.protocol)) return null;
+    const meta = await fetch("heads-eval.json", { cache: "no-store" }).then(r => (r.ok ? r.json() : null)).catch(() => null);
+    if (!meta) return null;                            // not built yet on this site
+    let idx = await idbGet("heads-index").catch(() => null);
+    if (!idx || idx.built !== meta.built || idx.heads !== meta.heads || idx.chosen !== (meta.chosen || "")) {
+      const r = await fetch("heads-index.bin.gz", { cache: "no-store" }); if (!r.ok) return null;
+      idx = { built: meta.built, heads: meta.heads, chosen: meta.chosen || "", bytes: new Uint8Array(await r.arrayBuffer()) };
+      try { await idbPut("heads-index", idx); } catch {}
+    }
+    const raw = new Uint8Array(await new Response(new Blob([idx.bytes]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer());
+    const dv = new DataView(raw.buffer), hl = dv.getUint32(4, true), h = JSON.parse(new TextDecoder().decode(raw.subarray(8, 8 + hl)));
+    const file = h.model || "heads-model.onnx";
+    let model = await idbGet("heads-model").catch(() => null);
+    if (!model || !model.bytes || model.file !== file) {
+      const r = await fetch(file, { cache: "no-store" }); if (!r.ok) return null;
+      const mb = Math.round((+r.headers.get("content-length") || 0) / 1e6);
+      toast(`Downloading the head matcher${mb ? ` (${mb} MB)` : ""}. This happens once.`);
+      model = { file, bytes: new Uint8Array(await r.arrayBuffer()) };
+      try { await idbPut("heads-model", model); } catch {}
+    }
+    const half = new Uint16Array(raw.buffer.slice(8 + hl, 8 + hl + h.n * h.dim * 2)), V = new Float32Array(half.length);
+    for (let i = 0; i < half.length; i++) V[i] = halfToFloat(half[i]);
+    if (!self.ort) await loadScript(ORT_BASE + "ort.webgpu.min.js");
+    ort.env.wasm.wasmPaths = ORT_BASE;
+    if (!self.crossOriginIsolated) ort.env.wasm.numThreads = 1;
+    const session = await ort.InferenceSession.create(model.bytes, { executionProviders: ["wasm"], graphOptimizationLevel: "all" });
+    Object.assign(HEADS, { session, V, heads: h.heads, dim: h.dim, prep: h.prep, n: h.n, feature: h.feature || "cls" });
+    return HEADS;
+  })().catch(e => { console.warn("head matcher not loaded", e); HEADS.loading = null; return null; });
+  return HEADS.loading;
+}
+// A head photo prepared like build_heads.py's prep(): the tray turned white, cropped to the head plus a
+// margin, square, 224 px, normalised. src: canvas or image; keep(x, y): is this pixel part of the head?
+function headInput(src, w, h, keep) {
+  const P = HEADS.prep || { size: 224, margin: 0.08, mean: [0.485, 0.456, 0.406], std: [0.229, 0.224, 0.225], white_cut: 40 };
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  const ctx = c.getContext("2d", { willReadFrequently: true }); ctx.drawImage(src, 0, 0, w, h);
+  const d = ctx.getImageData(0, 0, w, h), px = d.data;
+  let x0 = w, y0 = h, x1 = -1, y1 = -1;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = (y * w + x) * 4;
+    if (keep && !keep(x, y)) { px[i] = px[i + 1] = px[i + 2] = 255; continue; }
+    if (765 - px[i] - px[i + 1] - px[i + 2] > P.white_cut) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  }
+  ctx.putImageData(d, 0, 0);
+  if (x1 < 0) { x0 = 0; y0 = 0; x1 = w - 1; y1 = h - 1; }
+  const cw = x1 - x0 + 1, ch = y1 - y0 + 1, side = Math.max(1, Math.floor(Math.max(cw, ch) * (1 + 2 * P.margin)));
+  const sq = document.createElement("canvas"); sq.width = sq.height = P.size;
+  const sx = sq.getContext("2d", { willReadFrequently: true });
+  sx.fillStyle = "#fff"; sx.fillRect(0, 0, P.size, P.size);
+  const k = P.size / side, ox = Math.floor((side - cw) / 2), oy = Math.floor((side - ch) / 2);
+  sx.imageSmoothingQuality = "high";
+  sx.drawImage(c, x0, y0, cw, ch, ox * k, oy * k, cw * k, ch * k);
+  const q = sx.getImageData(0, 0, P.size, P.size).data, n = P.size * P.size, out = new Float32Array(3 * n);
+  for (let i = 0; i < n; i++) for (let ch2 = 0; ch2 < 3; ch2++) out[ch2 * n + i] = (q[i * 4 + ch2] / 255 - P.mean[ch2]) / P.std[ch2];
+  return new ort.Tensor("float32", out, [1, 3, P.size, P.size]);
+}
+async function matchHead(input, cid) {
+  const H = HEADS, feeds = { [H.session.inputNames[0]]: input };
+  const out = await H.session.run(feeds), name = H.session.outputNames.includes("last_hidden_state") ? "last_hidden_state" : H.session.outputNames[0];
+  const t = out[name], d = t.dims[t.dims.length - 1], ntok = t.dims.length === 3 ? t.dims[1] : 1, y = t.data;
+  // the fingerprint build_heads.py chose: "cls" (the model's summary) or "cls+mean" (plus the average detail patch)
+  const unitv = a => { let s2 = 0; for (const v of a) s2 += v * v; s2 = Math.sqrt(s2) || 1; return a.map(v => v / s2); };
+  const cls = unitv(Float32Array.from(y.subarray(0, d)));
+  let q = cls;
+  if (H.feature === "cls+mean" && ntok > 1) {
+    const m = new Float32Array(d); for (let k = 1; k < ntok; k++) for (let i = 0; i < d; i++) m[i] += y[k * d + i];
+    q = new Float32Array(2 * d); q.set(cls, 0); q.set(unitv(m), d); q = unitv(q);
+  }
+  const nrm = 1;
+  const scores = [];
+  for (let j = 0; j < H.n; j++) {
+    let s2 = 0; const o = j * H.dim;
+    for (let i = 0; i < H.dim; i++) s2 += H.V[o + i] * q[i];
+    s2 /= nrm; if (cid != null && H.heads[j][1] === cid) s2 += 0.02;   // a small nudge to the colour seen
+    scores.push([s2, j]);
+  }
+  scores.sort((a, b) => b[0] - a[0]);
+  const seen = new Set(), list = [];
+  for (const [sc, j] of scores) { const [part, c] = H.heads[j]; if (seen.has(part)) continue; seen.add(part); list.push({ part, cid: c, score: sc }); if (list.length >= 6) break; }
+  return list;
+}
+const isHeadRow = r => {
+  if (!r.items.length || r.kinds[r.item] !== "part") return false;
+  const it = r.items[r.item], rb = (r.entries[r.item] && r.entries[r.item].part_num) || r.rbPart || rbInColour([it.id, blFromItem(it)], null);
+  return (rb && RBX && rbSlot(rb) === "head") || /minifig(ure)?, head(?!gear|wear)/i.test(it.category || "") || /^(minifig(ure)?,? )?head\b/i.test(it.name || "");
+};
+// The head's photo with the tray turned white (using the photo's parts mask when the photo is still here).
+async function headCrop(r) {
+  const p = photos.find(q => q.id === (r.photoId ?? r.srcPhoto)), b = p && p.boxes[(r.srcBox ?? r.n) - 1];
+  if (p && b) {
+    const sx = b.x0 / p.scale, sy = b.y0 / p.scale, sw = (b.x1 - b.x0) / p.scale, sh = (b.y1 - b.y0) / p.scale, k = Math.min(1, 400 / Math.max(sw, sh));
+    const w = Math.max(8, Math.round(sw * k)), h = Math.max(8, Math.round(sh * k)), c = document.createElement("canvas"); c.width = w; c.height = h;
+    c.getContext("2d").drawImage(p.img, sx, sy, sw, sh, 0, 0, w, h);
+    const m = photoMask(p);
+    return headInput(c, w, h, (x, y) => m[Math.min(p.ch - 1, Math.floor(b.y0 + y / k * p.scale)) * p.cw + Math.min(p.cw - 1, Math.floor(b.x0 + x / k * p.scale))]);
+  }
+  const bmp = await createImageBitmap(r.blobs[0]);
+  return headInput(bmp, bmp.width, bmp.height, null);
+}
+const headMatcherOn = () => store.get("headMatcher", false);
+$("#head-matcher").checked = headMatcherOn();
+$("#head-matcher").addEventListener("change", () => { store.set("headMatcher", $("#head-matcher").checked); if (headMatcherOn()) renderReview(); });
+let headBusy = false;
+async function checkHeads() {
+  if (headBusy || !headMatcherOn()) return;
+  const todo = () => review.find(r => !r.skip && !r.error && r.blobs && r.blobs.length && !r.hm && isHeadRow(r));
+  if (!todo()) return;
+  headBusy = true;
+  try {
+    if (!(await loadHeads())) { for (const r of review) if (!r.hm && isHeadRow(r)) r.hm = { off: true }; return; }
+    for (let r; (r = todo());) {
+      try {
+        const c = r.colorOpts[r.colorSel], cid = c ? colourId(c.name) : null;
+        r.hm = { list: await matchHead(await headCrop(r), cid) };
+      } catch (e) { console.warn("head match failed", e); r.hm = { off: true }; }
+      renderReview();
+    }
+  } finally { headBusy = false; }
+}
+function headMatchHtml(r) {
+  if (!headMatcherOn() || !r.hm || r.hm.off || !r.hm.list || !r.hm.list.length || r.skip) return "";
+  const it = r.items[r.item], cur = ((r.entries[r.item] && r.entries[r.item].part_num) || r.rbPart || rbInColour([it.id, blFromItem(it)], null) || "").toLowerCase();
+  const agree = r.hm.list[0].part.toLowerCase() === cur;
+  return `<div class="headmatch"><div><b>Head matcher</b> <span class="muted">${agree ? "agrees with the match above." : "compared it with every head: tap yours if it's here."}</span></div>
+    <div class="hmopts">${r.hm.list.map((m, i) => { const pi = rbxPart(m.part), name = (pi != null && RBX.h.part_names && RBX.h.part_names[pi]) || m.part;
+      return `<button type="button" class="hmopt ${m.part.toLowerCase() === cur ? "on" : ""}" data-hm="${i}" title="${esc(name)}"><img src="${esc(picUrl(m.part, m.cid) || picAnyColour(m.part))}" alt="" loading="lazy" onerror="this.style.visibility='hidden'"><span>${esc(name.replace(/^Minifig(ure)? Head,? /i, ""))}</span></button>`; }).join("")}</div></div>`;
+}
+// Use the head picked from the matcher for this row.
+function pickHead(r, i) {
+  const m = r.hm.list[i], pi = rbxPart(m.part), name = (pi != null && RBX.h.part_names && RBX.h.part_names[pi]) || m.part, colour = colourName(m.cid);
+  const it = { id: blOf(m.part), name, img_url: picUrl(m.part, m.cid), type: "part", category: "Minifigure, Head", score: Math.max(0, Math.min(1, m.score)), external_sites: [] };
+  r.items = [it].concat(r.items.filter(x => x.id !== it.id)); r.kinds = r.items.map(x => kindOf(x, "parts"));
+  if (colour && !r.colors.some(c => Core.normColor(c.name) === Core.normColor(colour))) r.colors = [{ id: String(blColour(colour) ?? ""), name: colour, score: 1 }].concat(r.colors);
+  r.item = 0; r.rbPart = m.part; r.touched = true; r.figPart = true;
+  applyChoice(r, true);
+  const ci = r.colorOpts.findIndex(o => Core.normColor(o.name) === Core.normColor(colour)); if (ci >= 0) r.colorSel = ci;
+  renderReview();
+}
+
+// Brickognize's other guesses for a minifigure part, as pictures of the exact part in that colour.
+// Its right answer is often second or third (heads especially), and a picture is quicker to check than a name.
+function altsHtml(r) {
+  if (r.skip || r.error || !r.items.length || r.kinds[r.item] !== "part" || !r.figPart) return "";
+  const c = r.colorOpts[r.colorSel], cid = c ? colourId(c.name) : null;
+  const opts = r.items.map((it, i) => ({ it, i })).filter(({ it, i }) => i !== r.item && r.kinds[i] === "part").slice(0, 8);
+  if (!opts.length || r.items[r.item].score >= 0.9) return "";
+  return `<div class="headmatch"><div><b>Not right?</b> <span class="muted">Brickognize's other guesses. Tap yours.</span></div>
+    <div class="hmopts">${opts.map(({ it, i }) => { const rb = rbInColour([it.id, blFromItem(it)], cid);
+      const img = (rb && cid != null && picUrl(rb, cid)) || (rb && picAnyColour(rb)) || it.img_url || "";
+      const pi = rb ? rbxPart(rb) : null, name = (pi != null && RBX && RBX.h.part_names && RBX.h.part_names[pi]) || it.name;
+      return `<button type="button" class="hmopt" data-alt="${i}" title="${esc(name)}">${img ? `<img src="${esc(img)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">` : "<span></span>"}<span>${esc(name.replace(/^Minifig(ure)?,? (Head,? )?/i, ""))}</span><span class="muted">${Math.round(it.score * 100)}%</span></button>`; }).join("")}</div></div>`;
+}
+
 // =================== WHERE PARTS ARE ===================
 // Each scanned photo is kept on this device (at most 1600 px) with its boxes, and every part added from
 // it remembers the place you named and its box. "Where" then shows your own photo with the parts outlined.
@@ -5566,7 +5745,7 @@ const SB_KEY = store.get("sbKey", "sb_publishable_tI7qU67aKW97yzKEPBmKBg_BoY8JgR
 let auth = store.get("auth", null);                // {access_token, refresh_token, expires_at, user: {id, email}}
 let syncBase = store.get("syncBase", null);        // what the account had at the last sync: {user, inv, state, lastPull, at}
 let syncBusy = null, syncTimer = null, syncState = "", refreshing = null;
-const PREF_KEYS = ["binRare", "binFigparts", "binOther", "sortAuto", "sortSound", "sortMode", "figsWhole", "blCond", "blGuide", "blCur", "scanMode", "figCheck"];
+const PREF_KEYS = ["binRare", "binFigparts", "binOther", "sortAuto", "sortSound", "sortMode", "figsWhole", "blCond", "blGuide", "blCur", "scanMode", "figCheck", "headMatcher"];
 class SignedOut extends Error {}
 
 async function sbFetch(path, opts = {}, withUser = true) {

@@ -500,6 +500,19 @@ Photograph minifigures assembled, lying face up and spread out like parts.
   sticker sheets it spots are skipped).
 - **Script:** `--mode figs` or `--mode mixed`.
 
+**Heads (and other minifigure parts):** when Brickognize isn't sure, the row
+shows its other guesses as pictures of the exact part in that colour (**Not
+right?**): tap yours. It asks Brickognize for 10 guesses per part. Heads are
+hardest: photograph them face up, close, with soft side light, and add a photo
+of the back of two-faced heads under *More photos of this item*.
+
+*Head matcher (experimental, off by default):* compares each loose head with
+every head picture on Rebrickable (build_heads.py builds the index on GitHub).
+Tested on 600 head pictures made deliberately worse, it put the right head
+first 42% of the time and in its top 5 56% of the time; Brickognize did better
+on the same pictures (76% / 79%), so it's only a second opinion. Trained on your
+own confirmed head photos it could do better.
+
 **Checking a figure's parts:** a figure wearing someone else's legs still
 looks like the figure, so with *Check each minifigure's parts* ticked (under
 *What's in these photos*, on by default) the app also cuts each figure's photo

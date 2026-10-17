@@ -1,10 +1,8 @@
 # Builds the head matcher (heads-index.bin.gz) from every minifigure head picture on Rebrickable.
-# Runs when the builder changes, monthly, or by hand: Actions tab > "Build head matcher" > Run workflow.
+# Runs when the builder changes, or by hand: Actions tab > "Build head matcher" > Run workflow.
 name: Build head matcher
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "41 21 3 * *"          # the 3rd of each month
   push:
     branches: [main]
     paths: [build_heads.py, .github/workflows/heads.yml]
