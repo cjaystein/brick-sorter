@@ -997,6 +997,32 @@ const Core = (() => {
       return [X0 + x0, Y0 + y0, X0 + x1 + 1, Y0 + y1 + 1]; });
   }
 
+  // ---- whole minifigures: one box each ----------------------------------
+  // A figure can come out as pieces (legs the colour of the mat, a gap at the waist) or with crumbs
+  // around it. Figures are spread a finger's width apart, so boxes much closer than that belong to
+  // the same figure; boxes far smaller than a typical figure are crumbs. tight: [x0, y0, x1, y1] each.
+  function joinFigureBoxes(tight) {
+    const area = b => (b[2] - b[0]) * (b[3] - b[1]), long = b => Math.max(b[2] - b[0], b[3] - b[1]);
+    let bs = tight.map(b => b.slice());
+    if (bs.length < 2) return bs;
+    const med = a => { const s = a.slice().sort((x, y) => x - y); return s[s.length >> 1]; };
+    const gapOf = (a, b) => Math.hypot(Math.max(0, a[0] - b[2], b[0] - a[2]), Math.max(0, a[1] - b[3], b[1] - a[3]));
+    for (let changed = true; changed;) {
+      changed = false;
+      const typical = med(bs.map(long));
+      outer: for (let i = 0; i < bs.length; i++) for (let j = i + 1; j < bs.length; j++) {
+        const a = bs[i], b = bs[j], u = [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[2], b[2]), Math.max(a[3], b[3])];
+        const small = Math.min(long(a), long(b)), big = Math.max(long(a), long(b));
+        // close together, one of them a piece rather than a whole figure, and not bigger than a figure together
+        if (gapOf(a, b) <= 0.12 * big && small < 0.8 * typical && long(u) <= 1.35 * Math.max(typical, big)) {
+          bs[i] = u; bs.splice(j, 1); changed = true; break outer;
+        }
+      }
+    }
+    const typicalArea = med(bs.map(area));
+    return bs.filter(b => area(b) >= 0.12 * typicalArea);
+  }
+
   // ---- CSV ----------------------------------------------------------
   function parseCSV(text) {
     const rows = []; let row = [], cell = "", q = false;
@@ -1339,7 +1365,7 @@ const Core = (() => {
     return opts;
   }
 
-  return { detectParts, splitParts, parseCSV, toCSV, normColor, loosePart, buildColorLookup, compareSet,
+  return { detectParts, splitParts, joinFigureBoxes, parseCSV, toCSV, normColor, loosePart, buildColorLookup, compareSet,
            buildCatalogue, findEntry, chooseItem, chooseColour, colourOptions,
            nameSimilarity, compareFigs, matchFig, figChoices, rowType, FIG_LINK_AT, FIG_SURE_AT,
            letterbox, letterboxPixels, resizeBilinear, toTensor, decodeYolo, nms, iou, onnxImgsz, sortReading,
@@ -1382,7 +1408,7 @@ const blReady = (async () => {
   return blOn;
 })();
 // The version of this page; version.json next to it says the newest one published.
-const APP_VERSION = "2026-10-16 10:55";
+const APP_VERSION = "2026-10-17 15:12";
 async function checkForUpdate() {
   if (!/^https?:$/.test(location.protocol) || APP_VERSION.startsWith("__")) return;
   try {
@@ -1698,6 +1724,8 @@ async function detect(p) {
   } else {
     p.boxes = Core.detectParts(p.rgba, p.cw, p.ch, { sensitivity: +$("#sens").value, minSize: +$("#minsize").value / 10000 });
   }
+  if (scanMode === "figs" && p.boxes.length > 1)     // whole minifigures: their pieces and crumbs into one box each
+    p.boxes = Core.sortReading(Core.joinFigureBoxes(p.boxes.map(b => b.tight || [b.x0, b.y0, b.x1, b.y1])).map(t => padBox(p, t)), p.ch);
   p.off = new Set(); p.done = new Set(); p.mask = null;
   undoStack = undoStack.filter(u => u.p !== p); $("#photo-undo").disabled = !undoStack.length;
 }
@@ -1991,7 +2019,9 @@ function renderMode() {
 }
 $("#mode-nav").addEventListener("click", e => {
   const b = e.target.closest("[data-mode]"); if (!b) return;
+  const was = scanMode;
   scanMode = b.dataset.mode; store.set("scanMode", scanMode); renderMode();
+  if ((was === "figs") !== (scanMode === "figs") && photos.length && !review.length) detectAll();   // figures get one box each
 });
 
 function updateDetectSummary() {

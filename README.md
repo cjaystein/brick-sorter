@@ -30,6 +30,12 @@ Two versions that share the same inventory CSV format:
 - Shoot from directly above, in even light, without flash.
 - Clear/transparent parts are the hardest to detect; give them a dark background.
 
+**Whole minifigures, one box each:** with *Minifigures* chosen, a figure that
+came out in pieces (legs the colour of the mat, a gap at the waist) is joined
+back into one box, and crumbs are dropped. Keep figures a finger's width apart.
+A plain background that contrasts with the figures still helps most: a
+patterned mat can hide parts that are the same colour as it.
+
 **Parts that touch anyway:** under the photo, switch *Tapping a box* to
 **Splits it** and tap a box with two or more parts in it: it becomes one box
 per part (three in a row come apart in one tap). A single part is left alone.
