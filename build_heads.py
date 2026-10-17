@@ -34,7 +34,9 @@ import numpy as np
 import onnxruntime as ort
 from PIL import Image, ImageEnhance, ImageFilter
 
-MODEL_URL = "https://huggingface.co/Xenova/dinov2-small/resolve/main/onnx/model_quantized.onnx"
+MODELS = {"heads-model.onnx": "https://huggingface.co/Xenova/dinov2-small/resolve/main/onnx/model_quantized.onnx",
+          "heads-model-full.onnx": "https://huggingface.co/Xenova/dinov2-small/resolve/main/onnx/model.onnx"}
+BRICKOGNIZE = "https://api.brickognize.com/predict/parts/?top_k_items=10"
 PICS = "https://cdn.rebrickable.com/media/parts/"
 SIZE, MARGIN = 224, 0.08
 MEAN, STD = np.array([0.485, 0.456, 0.406], np.float32), np.array([0.229, 0.224, 0.225], np.float32)
@@ -89,17 +91,50 @@ def prep(img):
     return x.transpose(2, 0, 1)[None]
 
 
+def unit(v):
+    return v / (np.linalg.norm(v, axis=-1, keepdims=True) + 1e-9)
+
+
 class Model:
+    """Two fingerprints from one run: "cls" (the model's summary of the picture) and "cls+mean"
+    (that plus the average of its 256 detail patches, each made unit length, then together)."""
     def __init__(self, path):
         self.s = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
         self.inp = self.s.get_inputs()[0].name
         names = [o.name for o in self.s.get_outputs()]
-        self.out = "pooler_output" if "pooler_output" in names else names[0]
+        self.out = "last_hidden_state" if "last_hidden_state" in names else names[0]
 
     def __call__(self, x):
-        y = self.s.run([self.out], {self.inp: x})[0]
-        v = y[0] if y.ndim == 2 else y[0, 0]          # pooled, or the first (class) token
-        return v / (np.linalg.norm(v) + 1e-9)
+        y = self.s.run([self.out], {self.inp: x})[0][0]   # tokens x dim
+        cls, mean = unit(y[0]), unit(y[1:].mean(0))
+        return {"cls": cls, "cls+mean": unit(np.concatenate([cls, mean]))}
+
+
+def views(img, rng):
+    """Slightly worse copies of a reference picture, so its fingerprint tolerates a so-so photo."""
+    img = img.convert("RGBA")
+    white = Image.new("RGBA", img.size, (255, 255, 255, 255))
+    img = Image.alpha_composite(white, img).convert("RGB")
+    w, h = img.size
+    return [img,
+            img.filter(ImageFilter.GaussianBlur(1.2)),
+            img.resize((max(24, w // 3), max(24, h // 3)), Image.BILINEAR),
+            img.rotate(12, resample=Image.BICUBIC, fillcolor=(255, 255, 255)),
+            img.rotate(-12, resample=Image.BICUBIC, fillcolor=(255, 255, 255))]
+
+
+def brickognize(img):
+    b = io.BytesIO(); img.convert("RGB").save(b, "JPEG", quality=90)
+    bd = "----bricksorter"
+    body = (f"--{bd}\r\nContent-Disposition: form-data; name=\"query_image\"; filename=\"q.jpg\"\r\nContent-Type: image/jpeg\r\n\r\n").encode() + b.getvalue() + f"\r\n--{bd}--\r\n".encode()
+    for t in range(4):
+        try:
+            req = urllib.request.Request(BRICKOGNIZE, data=body, headers={"Content-Type": f"multipart/form-data; boundary={bd}", **UA})
+            with urllib.request.urlopen(req, timeout=60) as r:
+                return [it["id"] for it in json.load(r).get("items", [])]
+        except Exception:
+            time.sleep(3 * (t + 1))
+    return None
 
 
 def worse(img, rng):
@@ -130,18 +165,10 @@ def main():
     ap.add_argument("--cache", default="/tmp/head-pictures")
     ap.add_argument("--limit", type=int, default=0, help="only the first N heads (for a quick test)")
     ap.add_argument("--eval", type=int, default=600, help="how many heads to test with worse pictures")
+    ap.add_argument("--brickognize", type=int, default=200, help="how many of those to also ask Brickognize, for comparison")
     args = ap.parse_args()
     root, cache = Path(args.root), Path(args.cache)
     cache.mkdir(parents=True, exist_ok=True)
-    model_path = root / args.model
-    if not model_path.exists():
-        print("Downloading the image model...")
-        data = fetch(MODEL_URL)
-        if not data:
-            sys.exit("Couldn't download the image model")
-        model_path.write_bytes(data)
-    model = Model(model_path)
-
     heads = head_pictures(root)
     if args.limit:
         heads = heads[:args.limit]
@@ -159,40 +186,91 @@ def main():
         except Exception:
             return h, None
 
-    got, vecs = [], []
     with cf.ThreadPoolExecutor(16) as ex:
-        for i, (h, img) in enumerate(ex.map(get, heads)):
-            if img is None:
-                continue
-            got.append((h, img)); vecs.append(model(prep(img)))
-            if i % 500 == 0:
-                print(f"  {i} of {len(heads)}")
-    V = np.stack(vecs).astype(np.float32)
-    header = {"built": time.strftime("%Y-%m-%d"), "model": args.model, "dim": int(V.shape[1]), "n": int(V.shape[0]),
+        got = [(h, img) for h, img in ex.map(get, heads) if img is not None]
+    print(f"{len(got)} pictures ready")
+    rng = random.Random(7)
+    sample = rng.sample(range(len(got)), min(args.eval, len(got)))
+    queries = {i: worse(got[i][1], random.Random(1000 + i)) for i in sample}
+    prints = [h[0].lower() for h, _ in got]
+
+    def score(V, Q):
+        ranks, pranks = [], []
+        for i, q in zip(sample, Q):
+            order = np.argsort(-(V @ q))
+            ranks.append(int(np.nonzero(order == i)[0][0]) + 1)
+            pranks.append(next(k + 1 for k, j in enumerate(order) if prints[j] == prints[i]))
+        sh = lambda rs, k: round(sum(r <= k for r in rs) / len(rs), 3)
+        return {"top1": sh(ranks, 1), "top5": sh(ranks, 5), "top10": sh(ranks, 10), "print_top5": sh(pranks, 5)}
+
+    results, best = {}, None
+    for name, url in MODELS.items():
+        path = root / name if args.model == "heads-model.onnx" else Path(args.model)
+        if not path.exists():
+            print(f"Downloading {name}...")
+            data = fetch(url)
+            if not data:
+                print(f"  couldn't download {name}, skipping"); continue
+            path.write_bytes(data)
+        model = Model(path)
+        t0 = time.time()
+        plain = [model(prep(img)) for _, img in got]
+        Q = [model(prep(queries[i])) for i in sample]
+        per = (time.time() - t0) / (len(got) + len(sample))
+        for feat in ["cls", "cls+mean"]:
+            V = np.stack([v[feat] for v in plain]).astype(np.float16).astype(np.float32)
+            key = f"{name} {feat}"
+            results[key] = {**score(V, [q[feat] for q in Q]), "seconds_per_picture": round(per, 3), "mb": round(path.stat().st_size / 1e6, 1)}
+            print(key, results[key])
+        # several views per reference, for the better fingerprint of this model
+        feat = max(["cls", "cls+mean"], key=lambda f: results[f"{name} {f}"]["top5"])
+        multi = []
+        for k, (_, img) in enumerate(got):
+            vs = [model(prep(v))[feat] for v in views(img, rng)]
+            multi.append(unit(np.mean(vs, 0)))
+        V = np.stack(multi).astype(np.float16).astype(np.float32)
+        key = f"{name} {feat} +views"
+        results[key] = {**score(V, [q[feat] for q in Q]), "seconds_per_picture": round(per, 3), "mb": round(path.stat().st_size / 1e6, 1)}
+        print(key, results[key])
+        for key2, V2 in [(f"{name} {feat}", np.stack([v[feat] for v in plain])), (key, V)]:
+            r = results[key2]
+            # prefer the small model unless the big one is clearly better (it's 4x the download)
+            bonus = 0.03 if name == "heads-model.onnx" else 0
+            if best is None or r["top5"] + bonus > best[0]:
+                best = (r["top5"] + bonus, name, feat, key2.endswith("+views"), V2)
+    # Brickognize on the same pictures, for comparison (BrickLink numbers turned into Rebrickable's)
+    h0 = load_index(root / "rb-index.bin.gz")
+    bl2rb = {}
+    for p, ids in (h0.get("bl") or {}).items():
+        for b in ids.split(","):
+            bl2rb.setdefault(b.lower(), p.lower())
+    bg_r = []
+    for i in sample[:args.brickognize]:
+        ids = brickognize(queries[i])
+        if ids is None:
+            continue
+        rbs = [bl2rb.get(x.lower(), x.lower()) for x in ids]
+        bg_r.append(next((k + 1 for k, x in enumerate(rbs) if x == prints[i]), 99))
+        time.sleep(0.4)
+    if bg_r:
+        results["Brickognize (same pictures)"] = {"tested": len(bg_r), "print_top1": round(sum(r <= 1 for r in bg_r) / len(bg_r), 3), "print_top5": round(sum(r <= 5 for r in bg_r) / len(bg_r), 3)}
+        print("Brickognize", results["Brickognize (same pictures)"])
+
+    _, name, feat, multi, V = best
+    V = unit(V.astype(np.float32))
+    header = {"built": time.strftime("%Y-%m-%d"), "model": name, "feature": feat, "views": multi, "dim": int(V.shape[1]), "n": int(V.shape[0]),
               "prep": {"size": SIZE, "margin": MARGIN, "mean": MEAN.tolist(), "std": STD.tolist(), "white_cut": 40},
               "heads": [[h[0], h[1]] for h, _ in got]}
     hj = json.dumps(header, separators=(",", ":")).encode()
     body = b"HDIX" + struct.pack("<I", len(hj)) + hj + V.astype("<f2").tobytes()
     (root / "heads-index.bin.gz").write_bytes(gzip.compress(body, compresslevel=9, mtime=0))
-    print(f"Saved heads-index.bin.gz: {V.shape[0]} heads, {V.shape[1]} numbers each")
-
-    # How well does it do on worse pictures? (the right head, and the right print in any colour)
-    rng = random.Random(7)
-    sample = rng.sample(range(len(got)), min(args.eval, len(got)))
-    Vh = V.astype(np.float16).astype(np.float32)
-    prints = [h[0].lower() for h, _ in got]
-    ranks, pranks = [], []
-    for i in sample:
-        q = model(prep(worse(got[i][1], rng)))
-        order = np.argsort(-(Vh @ q))
-        ranks.append(int(np.nonzero(order == i)[0][0]) + 1)
-        pranks.append(next(k + 1 for k, j in enumerate(order) if prints[j] == prints[i]))
-    def share(rs, k): return round(sum(r <= k for r in rs) / len(rs), 3) if rs else 0
-    ev = {"built": header["built"], "heads": len(got), "tested": len(sample),
-          "exact": {"top1": share(ranks, 1), "top5": share(ranks, 5), "top10": share(ranks, 10)},
-          "print_any_colour": {"top1": share(pranks, 1), "top5": share(pranks, 5), "top10": share(pranks, 10)}}
+    chosen = f"{name} {feat}" + (" +views" if multi else "")
+    ev = {"built": header["built"], "heads": len(got), "tested": len(sample), "chosen": chosen, "model": name, "feature": feat,
+          "exact": {k: results[chosen][k] for k in ("top1", "top5", "top10")}, "all": results}
     (root / "heads-eval.json").write_text(json.dumps(ev, indent=1))
-    print(json.dumps(ev))
+    print("Chose", chosen)
+    if name != "heads-model-full.onnx" and (root / "heads-model-full.onnx").exists():
+        (root / "heads-model-full.onnx").unlink()          # not needed by the app
 
 
 if __name__ == "__main__":
