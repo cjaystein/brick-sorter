@@ -2,14 +2,67 @@
  "built": "2026-10-17",
  "heads": 5544,
  "tested": 600,
+ "chosen": "heads-model.onnx cls +views",
+ "model": "heads-model.onnx",
+ "feature": "cls",
  "exact": {
-  "top1": 0.29,
-  "top5": 0.442,
-  "top10": 0.502
+  "top1": 0.422,
+  "top5": 0.555,
+  "top10": 0.635
  },
- "print_any_colour": {
-  "top1": 0.295,
-  "top5": 0.45,
-  "top10": 0.505
+ "all": {
+  "heads-model.onnx cls": {
+   "top1": 0.325,
+   "top5": 0.447,
+   "top10": 0.5,
+   "print_top5": 0.453,
+   "seconds_per_picture": 0.064,
+   "mb": 24.5
+  },
+  "heads-model.onnx cls+mean": {
+   "top1": 0.255,
+   "top5": 0.382,
+   "top10": 0.433,
+   "print_top5": 0.387,
+   "seconds_per_picture": 0.064,
+   "mb": 24.5
+  },
+  "heads-model.onnx cls +views": {
+   "top1": 0.422,
+   "top5": 0.555,
+   "top10": 0.635,
+   "print_top5": 0.56,
+   "seconds_per_picture": 0.064,
+   "mb": 24.5
+  },
+  "heads-model-full.onnx cls": {
+   "top1": 0.308,
+   "top5": 0.443,
+   "top10": 0.51,
+   "print_top5": 0.45,
+   "seconds_per_picture": 0.081,
+   "mb": 88.5
+  },
+  "heads-model-full.onnx cls+mean": {
+   "top1": 0.273,
+   "top5": 0.397,
+   "top10": 0.445,
+   "print_top5": 0.4,
+   "seconds_per_picture": 0.081,
+   "mb": 88.5
+  },
+  "heads-model-full.onnx cls +views": {
+   "top1": 0.385,
+   "top5": 0.52,
+   "top10": 0.577,
+   "print_top5": 0.525,
+   "seconds_per_picture": 0.081,
+   "mb": 88.5
+  },
+  "Brickognize (same pictures)": {
+   "tested": 200,
+   "print_top1": 0.755,
+   "print_top5": 0.785
+  }
  }
 }
