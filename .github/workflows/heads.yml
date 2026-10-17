@@ -1,0 +1,40 @@
+# Builds the head matcher (heads-index.bin.gz) from every minifigure head picture on Rebrickable.
+# Runs when the builder changes, monthly, or by hand: Actions tab > "Build head matcher" > Run workflow.
+name: Build head matcher
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "41 21 3 * *"          # the 3rd of each month
+  push:
+    branches: [main]
+    paths: [build_heads.py, .github/workflows/heads.yml]
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install onnxruntime numpy pillow
+      - uses: actions/cache@v4
+        with:
+          path: /tmp/head-pictures
+          key: head-pictures-${{ hashFiles('rb-pics.txt.gz') }}
+          restore-keys: head-pictures-
+      - name: Build it
+        run: python build_heads.py --cache /tmp/head-pictures
+      - name: Commit it
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add heads-model.onnx heads-index.bin.gz heads-eval.json
+          if git diff --cached --quiet; then
+            echo "No change"
+          else
+            git commit -m "Build head matcher"
+            git pull --rebase
+            git push
+          fi
