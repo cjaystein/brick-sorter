@@ -485,7 +485,7 @@ th[aria-sort="descending"]::after { content: " ▼"; }
         <nav aria-label="What's in these photos" id="mode-nav"><button type="button" data-mode="parts">Parts</button><button type="button" data-mode="figs">Minifigures</button><button type="button" data-mode="mixed">Mixed</button></nav>
       </div>
       <p class="muted" style="margin:0;font-size:14px" id="mode-hint"></p>
-      <label class="check" id="fig-sweep-wrap"><input type="checkbox" id="fig-sweep"> Ask Brickognize to look for figures the finder missed (a few seconds more per photo)</label>
+      <label class="check" id="fig-sweep-wrap"><input type="checkbox" id="fig-sweep"> Ask Brickognize to find the figures, including any the finder missed (about a second per figure)</label>
       <label class="check" id="fig-check-wrap"><input type="checkbox" id="fig-check"> Check each minifigure's parts (hat, head, torso, legs) against the figure it's named as</label>
       <label class="check"><input type="checkbox" id="head-matcher"> Head matcher (experimental): also compare each loose head with every head picture. A second opinion; it downloads 25 MB once.</label>
       <label class="loc-field"><span class="label">Where will these go?</span>
@@ -1433,7 +1433,7 @@ const blReady = (async () => {
   return blOn;
 })();
 // The version of this page; version.json next to it says the newest one published.
-const APP_VERSION = "2026-10-18 09:22";
+const APP_VERSION = "2026-10-18 10:54";
 async function checkForUpdate() {
   if (!/^https?:$/.test(location.protocol) || APP_VERSION.startsWith("__")) return;
   try {
@@ -1751,23 +1751,33 @@ async function detect(p) {
   }
   if (scanMode === "figs") {                       // whole minifigures: their pieces and crumbs into one box each
     const whole = !!(m && m.bytes && m.id === "figures");
-    let t = Core.joinFigureBoxes(p.boxes.map(b => b.tight || [b.x0, b.y0, b.x1, b.y1]), null, whole);
+    let t = Core.joinFigureBoxes(p.boxes.map(b => b.tight || [b.x0, b.y0, b.x1, b.y1]), null, whole), seen = new Map();
     p.boxes = t.map(t => padBox(p, t));
-    if (figSweepOn()) {                            // then Brickognize looks for figures the finder missed
-      const run = detectRun, extra = await sweepFigs(p, t);
+    if (figSweepOn()) {                            // then Brickognize looks for figures (the ones the finder missed)
+      const run = detectRun, found = await sweepFigs(p, t, whole);
       if (run !== detectRun) return;
-      if (extra.length) t = Core.joinFigureBoxes(t.concat(extra), t.map(() => false).concat(extra.map(() => true)), whole);
+      if (found.length) {
+        const extra = found.map(x => x.b);
+        for (const x of found) seen.set(x.b.map(Math.round).join(), x.res);
+        // The background method boxes touching figures as one; a box Brickognize found figures in is replaced by them.
+        if (!whole) t = t.filter(a => covered(a, extra) < 0.15 && !extra.some(b => { const x = (b[0] + b[2]) / 2, y = (b[1] + b[3]) / 2; return x > a[0] && x < a[2] && y > a[1] && y < a[3]; }));
+        t = Core.joinFigureBoxes(t.concat(extra), t.map(() => false).concat(extra.map(() => true)), whole);
+      }
     }
-    p.boxes = Core.sortReading(t.map(t => padBox(p, t)), p.ch);
+    p.boxes = Core.sortReading(t.map(t => Object.assign(padBox(p, t), seen.has(t.map(Math.round).join()) ? { res: seen.get(t.map(Math.round).join()) } : {})), p.ch);
   }
   p.off = new Set(); p.done = new Set(); p.mask = null;
   undoStack = undoStack.filter(u => u.p !== p); $("#photo-undo").disabled = !undoStack.length;
 }
 // ---------- figures the finder missed ----------
-// Brickognize finds the one minifigure it's surest of in a picture, with its box. So the figures already
-// boxed are painted over in the background's colour and Brickognize is asked again, until it finds none.
-// If that found any, the finder is missing figures in this photo, so each half is searched the same way
-// (a figure half hidden behind others is easier to find in a smaller picture).
+// Brickognize finds the one minifigure it's surest of in a picture, with its box (and names it). So each
+// figure it finds is painted over in the background's colour and Brickognize is asked again, until it
+// finds none. Then the photo is searched in quarters, then ninths, the same way: in a pile of figures
+// it gives up on the whole photo long before every figure is found, but finds more in a smaller picture.
+// Boxes from the figure finder are whole figures, so they're painted over first and not asked about.
+// Boxes from the background method may hold several touching figures, so Brickognize searches them too.
+const covered = (a, bs) => { const ar = Math.max(1, (a[2] - a[0]) * (a[3] - a[1]));
+  return bs.reduce((s, b) => s + Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0])) * Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1])), 0) / ar; };
 const figSweepOn = () => store.get("figSweep", true);
 function edgeColour(p) {
   const { rgba, cw, ch } = p, rs = [], gs = [], bs = [], add = (x, y) => { const i = (y * cw + x) * 4; rs.push(rgba[i]); gs.push(rgba[i + 1]); bs.push(rgba[i + 2]); };
@@ -1776,35 +1786,37 @@ function edgeColour(p) {
   const med = a => a.sort((u, v) => u - v)[a.length >> 1];
   return `rgb(${med(rs)},${med(gs)},${med(bs)})`;
 }
-async function sweepFigs(p, tight) {
-  const key = (cur() ? cur().id : "bg") + "|" + JSON.stringify(tight.map(b => b.map(Math.round)));
+async function sweepFigs(p, tight, whole) {
+  const key = (whole ? "fig" : "bg") + "|" + JSON.stringify(tight.map(b => b.map(Math.round)));
   if (p.sweep && p.sweep.key === key) return p.sweep.found;
   const k = Math.min(1, 1280 / Math.max(p.w, p.h)), W = Math.round(p.w * k), H = Math.round(p.h * k), f = k / p.scale;
   const c = document.createElement("canvas"); c.width = W; c.height = H;
   const ctx = c.getContext("2d"); ctx.drawImage(p.img, 0, 0, W, H); ctx.fillStyle = edgeColour(p);
   const paint = b => ctx.fillRect(b[0], b[1], b[2] - b[0], b[3] - b[1]);
-  tight.forEach(b => paint(b.map(v => v * f)));
-  const found = [], regions = [[0, 0, W, H]], MAX = 14;
+  if (whole) tight.forEach(b => paint(b.map(v => v * f)));
+  const grid = (n, k) => { const out = []; for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+    const x0 = x * (W - W * k) / (n - 1), y0 = y * (H - H * k) / (n - 1); out.push([x0, y0, x0 + W * k, y0 + H * k]); } return out; };
+  const passes = [[[0, 0, W, H]], grid(2, 0.6), grid(3, 0.45)], found = [], MAX = 45;
   let calls = 0, failed = false;
-  p.sweeping = true; renderPhoto(p);
+  p.sweeping = true; p.sweepN = 0; renderPhoto(p);
   try {
-    for (let r = 0; r < regions.length && calls < MAX && !failed; r++) {
-      const [x0, y0, x1, y1] = regions[r];
-      for (let n = 0; n < 10 && calls < MAX; n++) {
-        const d = document.createElement("canvas"); d.width = Math.round(x1 - x0); d.height = Math.round(y1 - y0);
-        d.getContext("2d").drawImage(c, x0, y0, d.width, d.height, 0, 0, d.width, d.height);
-        const blob = await new Promise(res => d.toBlob(res, "image/jpeg", 0.88)); calls++;
-        let res; try { res = await identifyOne(blob, "/predict/figs/?top_k_items=1"); } catch { failed = true; break; }
-        const bb = res && res.bounding_box;
-        if (!bb || !bb.image_width || bb.score < 0.4) break;
-        const s = (x1 - x0) / bb.image_width, b = [x0 + bb.left * s, y0 + bb.upper * s, x0 + bb.right * s, y0 + bb.lower * s];
-        paint(b);
-        if ((b[2] - b[0]) * (b[3] - b[1]) > 0.001 * W * H) found.push(b.map(v => v / f));
+    for (let pi = 0; pi < passes.length && calls < MAX && !failed; pi++) {
+      const before = found.length;
+      for (const [x0, y0, x1, y1] of passes[pi]) {
+        for (let n = 0; n < 15 && calls < MAX; n++) {
+          const d = document.createElement("canvas"); d.width = Math.round(x1 - x0); d.height = Math.round(y1 - y0);
+          d.getContext("2d").drawImage(c, x0, y0, d.width, d.height, 0, 0, d.width, d.height);
+          const blob = await new Promise(res => d.toBlob(res, "image/jpeg", 0.88)); calls++;
+          let res; try { res = await identifyOne(blob, ENDPOINT.figs); } catch { failed = true; break; }
+          const bb = res && res.bounding_box;
+          if (!bb || !bb.image_width || bb.score < 0.4) break;
+          const s = (x1 - x0) / bb.image_width, b = [x0 + bb.left * s, y0 + bb.upper * s, x0 + bb.right * s, y0 + bb.lower * s];
+          paint(b);
+          if ((b[2] - b[0]) * (b[3] - b[1]) > 0.001 * W * H) { found.push({ b: b.map(v => v / f), res }); p.sweepN = found.length; renderPhoto(p); }
+        }
+        if (failed) break;
       }
-      if (r === 0 && found.length) {
-        if (W >= 0.6 * H) regions.push([0, 0, 0.6 * W, H], [0.4 * W, 0, W, H]);
-        if (H >= 0.6 * W) regions.push([0, 0, W, 0.6 * H], [0, 0.4 * H, W, H]);
-      }
+      if (found.length === before) break;          // nothing new: smaller pieces won't find more
     }
   } finally { p.sweeping = false; }
   if (!failed) p.sweep = { key, found };            // offline: try again next time
@@ -2082,7 +2094,7 @@ function renderPhoto(p) {
   const on = p.boxes.length - p.off.size;
   wrap.querySelector(".mono").textContent = p.name;
   const [one, many] = WHAT[scanMode];
-  wrap.querySelector(".muted").textContent = (p.sweeping ? "Looking for more figures… " : "") + `${on} ${on === 1 ? one : many}` + (p.off.size ? ` (${p.off.size} left out)` : "");
+  wrap.querySelector(".muted").textContent = (p.sweeping ? `Brickognize is looking for figures (${p.sweepN || 0} so far)… ` : "") + `${on} ${on === 1 ? one : many}` + (p.off.size ? ` (${p.off.size} left out)` : "");
 }
 
 function selectedCount() { return photos.reduce((s, p) => s + p.boxes.length - p.off.size, 0); }
@@ -2292,7 +2304,8 @@ $("#identify").addEventListener("click", async () => {
     while (cursor < jobs.length && !netFail) {
       const k = cursor++, j = jobs[k];
       const { blob, url } = await cropBlob(j.p, j.b);
-      try { results[k] = { crop: url, blob, photo: j.p.name, photoId: j.p.id, n: j.i + 1, mode, res: await identifyOne(blob, mode) }; }
+      // a figure Brickognize found while looking over the photo was named then: no need to ask again
+      try { results[k] = { crop: url, blob, photo: j.p.name, photoId: j.p.id, n: j.i + 1, mode, res: mode === "figs" && j.b.res ? j.b.res : await identifyOne(blob, mode) }; }
       catch (e) { if (e instanceof NetError) netFail = true; failed++; results[k] = { crop: url, blob, photo: j.p.name, photoId: j.p.id, n: j.i + 1, mode, error: e.message }; }
       done++; setProgress();
     }

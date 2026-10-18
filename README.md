@@ -34,15 +34,19 @@ patterned mat can hide parts that are the same colour as it. With the figure
 finder, which boxes whole figures, only a box almost entirely inside another
 is joined, so figures touching on a crowded shelf stay separate.
 
-**Figures the finder missed:** with *Minifigures* chosen, Brickognize also
-looks over each photo. The figures already boxed are painted over in the
-background's colour, and Brickognize is asked to find a figure; that repeats
-until it finds none. If it found any, each half of the photo is searched the
-same way, which catches figures half hidden behind others. A photo where
-everything was found costs one extra request. It needs the internet; untick
-*Ask Brickognize to look for figures the finder missed* to skip it. Close-up
-photos of a few figures with capes and cowls are where the figure finder (a
-general "person" detector) misses most.
+**Brickognize finds the figures:** with *Minifigures* chosen, Brickognize
+looks over each photo for figures. It finds the one figure it's surest of, with
+its box and its name; that figure is painted over in the background's colour,
+and Brickognize is asked again, until it finds none. Then the photo is
+searched in quarters and then ninths the same way, which catches figures in a
+pile or half hidden behind others. Each figure found is already named, so
+*Identify* doesn't ask again. With the figure finder, its boxes are painted
+over first and only the figures it missed are looked for. With the background
+method, figures that touch come out as one box; Brickognize's figures replace
+that box. It needs the internet; untick *Ask Brickognize to find the figures*
+to skip it. On a test pile of 16 touching figures it found
+10 (the background method found none on its own); spread a finger apart on a
+tray, 10 of 10. Spread figures out for the best results.
 
 **Parts that touch anyway:** under the photo, switch *Tapping a box* to
 **Splits it** and tap a box with two or more parts in it: it becomes one box
