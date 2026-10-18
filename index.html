@@ -485,6 +485,7 @@ th[aria-sort="descending"]::after { content: " ▼"; }
         <nav aria-label="What's in these photos" id="mode-nav"><button type="button" data-mode="parts">Parts</button><button type="button" data-mode="figs">Minifigures</button><button type="button" data-mode="mixed">Mixed</button></nav>
       </div>
       <p class="muted" style="margin:0;font-size:14px" id="mode-hint"></p>
+      <label class="check" id="fig-sweep-wrap"><input type="checkbox" id="fig-sweep"> Ask Brickognize to look for figures the finder missed (a few seconds more per photo)</label>
       <label class="check" id="fig-check-wrap"><input type="checkbox" id="fig-check"> Check each minifigure's parts (hat, head, torso, legs) against the figure it's named as</label>
       <label class="check"><input type="checkbox" id="head-matcher"> Head matcher (experimental): also compare each loose head with every head picture. A second opinion; it downloads 25 MB once.</label>
       <label class="loc-field"><span class="label">Where will these go?</span>
@@ -1008,26 +1009,43 @@ const Core = (() => {
   // A figure can come out as pieces (legs the colour of the mat, a gap at the waist) or with crumbs
   // around it. Figures are spread a finger's width apart, so boxes much closer than that belong to
   // the same figure; boxes far smaller than a typical figure are crumbs. tight: [x0, y0, x1, y1] each.
-  function joinFigureBoxes(tight) {
+  // sure (optional, one flag per box): boxes known to be one whole figure each (Brickognize found them).
+  // They're never joined to each other or dropped; a box mostly inside one is joined into it.
+  // whole: the boxes came from the figure finder, which boxes whole figures. On a crowded shelf they touch
+  // and overlap, so only a box almost entirely inside another is joined (a hand or a cape boxed on its own).
+  function joinFigureBoxes(tight, sure, whole) {
     const area = b => (b[2] - b[0]) * (b[3] - b[1]), long = b => Math.max(b[2] - b[0], b[3] - b[1]);
-    let bs = tight.map(b => b.slice());
-    if (bs.length < 2) return bs;
+    let bs = tight.map((b, i) => ({ b: b.slice(), s: !!(sure && sure[i]) }));
+    if (bs.length < 2) return bs.map(x => x.b);
     const med = a => { const s = a.slice().sort((x, y) => x - y); return s[s.length >> 1]; };
     const gapOf = (a, b) => Math.hypot(Math.max(0, a[0] - b[2], b[0] - a[2]), Math.max(0, a[1] - b[3], b[1] - a[3]));
+    const inside = (a, b) => Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0])) * Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1])) / Math.max(1, area(a));
     for (let changed = true; changed;) {
       changed = false;
-      const typical = med(bs.map(long));
+      const typical = med(bs.map(x => long(x.b)));
       outer: for (let i = 0; i < bs.length; i++) for (let j = i + 1; j < bs.length; j++) {
-        const a = bs[i], b = bs[j], u = [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[2], b[2]), Math.max(a[3], b[3])];
+        const A = bs[i], B = bs[j], a = A.b, b = B.b;
+        if (A.s && B.s) continue;
+        if (A.s || B.s) {                             // a whole figure: only take in what lies mostly inside it
+          const [S, O] = A.s ? [A, B] : [B, A];
+          if (inside(O.b, S.b) >= 0.6) { bs[i] = S; bs.splice(j, 1); changed = true; break outer; }
+          continue;
+        }
+        if (whole) {
+          const [S, O] = area(a) >= area(b) ? [A, B] : [B, A];
+          if (inside(O.b, S.b) >= 0.8) { bs[i] = S; bs.splice(j, 1); changed = true; break outer; }
+          continue;
+        }
+        const u = [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[2], b[2]), Math.max(a[3], b[3])];
         const small = Math.min(long(a), long(b)), big = Math.max(long(a), long(b));
         // close together, one of them a piece rather than a whole figure, and not bigger than a figure together
         if (gapOf(a, b) <= 0.12 * big && small < 0.8 * typical && long(u) <= 1.35 * Math.max(typical, big)) {
-          bs[i] = u; bs.splice(j, 1); changed = true; break outer;
+          bs[i] = { b: u, s: false }; bs.splice(j, 1); changed = true; break outer;
         }
       }
     }
-    const typicalArea = med(bs.map(area));
-    return bs.filter(b => area(b) >= 0.12 * typicalArea);
+    const typicalArea = med(bs.map(x => area(x.b)));
+    return bs.filter(x => x.s || area(x.b) >= 0.12 * typicalArea).map(x => x.b);
   }
 
   // ---- CSV ----------------------------------------------------------
@@ -1415,7 +1433,7 @@ const blReady = (async () => {
   return blOn;
 })();
 // The version of this page; version.json next to it says the newest one published.
-const APP_VERSION = "2026-10-17 16:59";
+const APP_VERSION = "2026-10-18 09:22";
 async function checkForUpdate() {
   if (!/^https?:$/.test(location.protocol) || APP_VERSION.startsWith("__")) return;
   try {
@@ -1731,10 +1749,66 @@ async function detect(p) {
   } else {
     p.boxes = Core.detectParts(p.rgba, p.cw, p.ch, { sensitivity: +$("#sens").value, minSize: +$("#minsize").value / 10000 });
   }
-  if (scanMode === "figs" && p.boxes.length > 1)     // whole minifigures: their pieces and crumbs into one box each
-    p.boxes = Core.sortReading(Core.joinFigureBoxes(p.boxes.map(b => b.tight || [b.x0, b.y0, b.x1, b.y1])).map(t => padBox(p, t)), p.ch);
+  if (scanMode === "figs") {                       // whole minifigures: their pieces and crumbs into one box each
+    const whole = !!(m && m.bytes && m.id === "figures");
+    let t = Core.joinFigureBoxes(p.boxes.map(b => b.tight || [b.x0, b.y0, b.x1, b.y1]), null, whole);
+    p.boxes = t.map(t => padBox(p, t));
+    if (figSweepOn()) {                            // then Brickognize looks for figures the finder missed
+      const run = detectRun, extra = await sweepFigs(p, t);
+      if (run !== detectRun) return;
+      if (extra.length) t = Core.joinFigureBoxes(t.concat(extra), t.map(() => false).concat(extra.map(() => true)), whole);
+    }
+    p.boxes = Core.sortReading(t.map(t => padBox(p, t)), p.ch);
+  }
   p.off = new Set(); p.done = new Set(); p.mask = null;
   undoStack = undoStack.filter(u => u.p !== p); $("#photo-undo").disabled = !undoStack.length;
+}
+// ---------- figures the finder missed ----------
+// Brickognize finds the one minifigure it's surest of in a picture, with its box. So the figures already
+// boxed are painted over in the background's colour and Brickognize is asked again, until it finds none.
+// If that found any, the finder is missing figures in this photo, so each half is searched the same way
+// (a figure half hidden behind others is easier to find in a smaller picture).
+const figSweepOn = () => store.get("figSweep", true);
+function edgeColour(p) {
+  const { rgba, cw, ch } = p, rs = [], gs = [], bs = [], add = (x, y) => { const i = (y * cw + x) * 4; rs.push(rgba[i]); gs.push(rgba[i + 1]); bs.push(rgba[i + 2]); };
+  for (let x = 0; x < cw; x += 3) for (const y of [1, 4, ch - 5, ch - 2]) add(x, y);
+  for (let y = 0; y < ch; y += 3) for (const x of [1, 4, cw - 5, cw - 2]) add(x, y);
+  const med = a => a.sort((u, v) => u - v)[a.length >> 1];
+  return `rgb(${med(rs)},${med(gs)},${med(bs)})`;
+}
+async function sweepFigs(p, tight) {
+  const key = (cur() ? cur().id : "bg") + "|" + JSON.stringify(tight.map(b => b.map(Math.round)));
+  if (p.sweep && p.sweep.key === key) return p.sweep.found;
+  const k = Math.min(1, 1280 / Math.max(p.w, p.h)), W = Math.round(p.w * k), H = Math.round(p.h * k), f = k / p.scale;
+  const c = document.createElement("canvas"); c.width = W; c.height = H;
+  const ctx = c.getContext("2d"); ctx.drawImage(p.img, 0, 0, W, H); ctx.fillStyle = edgeColour(p);
+  const paint = b => ctx.fillRect(b[0], b[1], b[2] - b[0], b[3] - b[1]);
+  tight.forEach(b => paint(b.map(v => v * f)));
+  const found = [], regions = [[0, 0, W, H]], MAX = 14;
+  let calls = 0, failed = false;
+  p.sweeping = true; renderPhoto(p);
+  try {
+    for (let r = 0; r < regions.length && calls < MAX && !failed; r++) {
+      const [x0, y0, x1, y1] = regions[r];
+      for (let n = 0; n < 10 && calls < MAX; n++) {
+        const d = document.createElement("canvas"); d.width = Math.round(x1 - x0); d.height = Math.round(y1 - y0);
+        d.getContext("2d").drawImage(c, x0, y0, d.width, d.height, 0, 0, d.width, d.height);
+        const blob = await new Promise(res => d.toBlob(res, "image/jpeg", 0.88)); calls++;
+        let res; try { res = await identifyOne(blob, "/predict/figs/?top_k_items=1"); } catch { failed = true; break; }
+        const bb = res && res.bounding_box;
+        if (!bb || !bb.image_width || bb.score < 0.4) break;
+        const s = (x1 - x0) / bb.image_width, b = [x0 + bb.left * s, y0 + bb.upper * s, x0 + bb.right * s, y0 + bb.lower * s];
+        paint(b);
+        if ((b[2] - b[0]) * (b[3] - b[1]) > 0.001 * W * H) found.push(b.map(v => v / f));
+      }
+      if (r === 0 && found.length) {
+        if (W >= 0.6 * H) regions.push([0, 0, 0.6 * W, H], [0.4 * W, 0, W, H]);
+        if (H >= 0.6 * W) regions.push([0, 0, W, 0.6 * H], [0, 0.4 * H, W, H]);
+      }
+    }
+  } finally { p.sweeping = false; }
+  if (!failed) p.sweep = { key, found };            // offline: try again next time
+  return found;
 }
 
 // ---------- fixing the boxes by hand: split merged parts, draw missed ones ----------
@@ -2007,7 +2081,8 @@ function renderPhoto(p) {
   ctx.setLineDash([]);
   const on = p.boxes.length - p.off.size;
   wrap.querySelector(".mono").textContent = p.name;
-  wrap.querySelector(".muted").textContent = `${on} part${on === 1 ? "" : "s"}` + (p.off.size ? ` (${p.off.size} left out)` : "");
+  const [one, many] = WHAT[scanMode];
+  wrap.querySelector(".muted").textContent = (p.sweeping ? "Looking for more figures… " : "") + `${on} ${on === 1 ? one : many}` + (p.off.size ? ` (${p.off.size} left out)` : "");
 }
 
 function selectedCount() { return photos.reduce((s, p) => s + p.boxes.length - p.off.size, 0); }
@@ -2021,6 +2096,8 @@ function renderMode() {
   for (const b of document.querySelectorAll("#mode-nav button")) b.setAttribute("aria-selected", String(b.dataset.mode === scanMode));
   $("#mode-hint").textContent = MODE_HINT[scanMode];
   $("#fig-check-wrap").hidden = scanMode === "parts";
+  $("#fig-sweep-wrap").hidden = scanMode !== "figs";
+  $("#fig-sweep").checked = figSweepOn();
   $("#fig-check").checked = figCheckOn();
   updateDetectSummary();
 }
@@ -5255,6 +5332,7 @@ $("#mf-prices").addEventListener("click", async () => {
 // part each answer is (headgear, torso, legs...), so it doesn't matter which way up the figure lies.
 // Each kind is compared with the parts the figure really has (Rebrickable's parts list).
 const figCheckOn = () => store.get("figCheck", true);
+$("#fig-sweep").addEventListener("change", () => { store.set("figSweep", $("#fig-sweep").checked); cloudSoon(); if (photos.length && !review.length) detectAll(); });
 $("#fig-check").addEventListener("change", () => { store.set("figCheck", $("#fig-check").checked); cloudSoon(); if ($("#fig-check").checked) renderReview(); });
 const FC_SLOTS = [                                    // [slot, Brickognize category, Rebrickable categories, name]
   ["headgear", /headgear(?! accessor)|hair|helmet|\bhat\b/i, ["Minifig Headwear"], "Hat or hair"],
@@ -5745,7 +5823,7 @@ const SB_KEY = store.get("sbKey", "sb_publishable_tI7qU67aKW97yzKEPBmKBg_BoY8JgR
 let auth = store.get("auth", null);                // {access_token, refresh_token, expires_at, user: {id, email}}
 let syncBase = store.get("syncBase", null);        // what the account had at the last sync: {user, inv, state, lastPull, at}
 let syncBusy = null, syncTimer = null, syncState = "", refreshing = null;
-const PREF_KEYS = ["binRare", "binFigparts", "binOther", "sortAuto", "sortSound", "sortMode", "figsWhole", "blCond", "blGuide", "blCur", "scanMode", "figCheck", "headMatcher"];
+const PREF_KEYS = ["binRare", "binFigparts", "binOther", "sortAuto", "sortSound", "sortMode", "figsWhole", "blCond", "blGuide", "blCur", "scanMode", "figCheck", "headMatcher", "figSweep"];
 class SignedOut extends Error {}
 
 async function sbFetch(path, opts = {}, withUser = true) {

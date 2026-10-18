@@ -1,9 +1,5 @@
 # Brick Sorter
 
-**Use it online:** https://cjaystein.github.io/brick-sorter/ (works on a phone,
-no install). Everything except BrickLink prices works there; prices need
-`serve.py` on your own computer (see below).
-
 Photograph a pile of LEGO parts or minifigures, get each one identified (part + colour, or whole minifigure) with
 [Brickognize](https://brickognize.com), keep an inventory, and check it against
 any set's parts list from [Rebrickable](https://rebrickable.com).
@@ -34,7 +30,19 @@ Two versions that share the same inventory CSV format:
 came out in pieces (legs the colour of the mat, a gap at the waist) is joined
 back into one box, and crumbs are dropped. Keep figures a finger's width apart.
 A plain background that contrasts with the figures still helps most: a
-patterned mat can hide parts that are the same colour as it.
+patterned mat can hide parts that are the same colour as it. With the figure
+finder, which boxes whole figures, only a box almost entirely inside another
+is joined, so figures touching on a crowded shelf stay separate.
+
+**Figures the finder missed:** with *Minifigures* chosen, Brickognize also
+looks over each photo. The figures already boxed are painted over in the
+background's colour, and Brickognize is asked to find a figure; that repeats
+until it finds none. If it found any, each half of the photo is searched the
+same way, which catches figures half hidden behind others. A photo where
+everything was found costs one extra request. It needs the internet; untick
+*Ask Brickognize to look for figures the finder missed* to skip it. Close-up
+photos of a few figures with capes and cowls are where the figure finder (a
+general "person" detector) misses most.
 
 **Parts that touch anyway:** under the photo, switch *Tapping a box* to
 **Splits it** and tap a box with two or more parts in it: it becomes one box
